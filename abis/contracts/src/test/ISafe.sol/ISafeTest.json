@@ -1,0 +1,10 @@
+[
+  "function addOwnerWithThreshold(address,uint256)",
+  "function enableModule(address)",
+  "function execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes) payable returns (bool)",
+  "function getChainId() view returns (uint256)",
+  "function getThreshold() view returns (uint256)",
+  "function isModuleEnabled(address) view returns (bool)",
+  "function isOwner(address) view returns (bool)",
+  "function nonce() view returns (uint256)"
+]
