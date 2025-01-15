@@ -1,3 +1,6 @@
 [submodule "contracts/lib/forge-std"]
 	path = contracts/lib/forge-std
 	url = https://github.com/foundry-rs/forge-std.git
+[submodule "contracts/lib/dln-contracts"]
+	path = contracts/lib/dln-contracts
+	url = https://github.com/debridge-finance/dln-contracts
