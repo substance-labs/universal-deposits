@@ -9,7 +9,8 @@
     "declaration": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "useUnknownInCatchVariables": true
   },
   "include": [
     "./scripts/**/*.js",
@@ -20,11 +21,5 @@
     "./test/**/*.ts",
     "./typechain-types/**/*.ts"
   ],
-  "files": [
-    "hardhat.config.ts",
-    "deploy-args.ts",
-    "eslint.config.js",
-    "arguments.js",
-    ".solcover.js"
-  ]
+  "files": ["hardhat.config.ts", "deploy-args.ts", "eslint.config.js", "arguments.js", ".solcover.js"]
 }
