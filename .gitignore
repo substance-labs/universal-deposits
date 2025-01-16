@@ -87,3 +87,4 @@ deployments-zk
 bin
 out
 abis
+dist
