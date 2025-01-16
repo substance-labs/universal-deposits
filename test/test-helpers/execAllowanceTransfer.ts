@@ -1,10 +1,10 @@
 import { SignerWithAddress } from '@nomicfoundation/hardhat-ethers/signers'
 import { ZeroAddress } from 'ethers'
 
-import { AllowanceModule } from '../../typechain-types'
+import { SafeModule } from '../../typechain-types'
 
 export default async function execAllowanceTransfer(
-  module: AllowanceModule,
+  module: SafeModule,
   {
     safe,
     token,

@@ -1,36 +1,65 @@
-import { loadFixture } from '@nomicfoundation/hardhat-network-helpers'
-import { expect } from 'chai'
+import Safe, { SafeAccountConfig } from '@safe-global/protocol-kit'
+import { Account, createPublicClient, createWalletClient, http } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
+import { arbitrum } from 'viem/chains'
 
-import execAllowanceTransfer from './test-helpers/execAllowanceTransfer'
-import execSafeTransaction from './test-helpers/execSafeTransaction'
-import setup from './test-helpers/setup'
+describe('safeModule allowanceManagement', () => {
+  let url: string
+  let account: Account
+  before(async () => {
+    url = 'http://127.0.0.1:8545'
+    account = privateKeyToAccount('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80') // anvil fork
+    // const blockToForkFrom = 295976000 // 2025-01-15
+    // await reset(url, blockToForkFrom)
 
-describe('AllowanceModule allowanceManagement', () => {
-  it('Add delegates and removes first delegate', async () => {
-    const { safe, allowanceModule, owner, alice, bob } = await loadFixture(setup)
+    // await setBalance(account.address, parseUnits('1', 18))
+  })
 
-    const safeAddress = await safe.getAddress()
-    const allowanceAddress = await allowanceModule.getAddress()
+  it('hello', async () => {
+    const owner = '0xf9A9e6288c7A23B2b07f06f668084A1101835fA6'
+    const legacySafe = '0xf9A9e6288c7A23B2b07f06f668084A1101835fA6'
+    const safeAccountConfig: SafeAccountConfig = {
+      owners: [owner],
+      threshold: 1,
+      // Additional optional parameters can be included here
+    }
 
-    expect(await safe.isModuleEnabled(allowanceAddress)).to.equal(true)
+    const predictedSafe = {
+      safeAccountConfig,
+      safeDeploymentConfig: {
+        saltNonce: legacySafe, // optional parameter
+      },
+    }
 
-    // // add alice as delegate
-    // await execSafeTransaction(safe, await allowanceModule.addDelegate.populateTransaction(alice.address), owner)
+    const provider = url
 
-    // // add bob as delegate
-    // await execSafeTransaction(safe, await allowanceModule.addDelegate.populateTransaction(bob.address), owner)
+    const client = createWalletClient({
+      account,
+      chain: arbitrum,
+      transport: http(url),
+    })
 
-    // let delegates = await allowanceModule.getDelegates(safeAddress, 0, 10)
+    const protocolKit = await Safe.init({
+      provider,
+      signer: account.address,
+      predictedSafe,
+    })
 
-    // expect(delegates.results).to.deep.equal([bob.address, alice.address])
-    // expect(delegates.next).to.equal(0)
+    try {
+      const deploymentTransaction = await protocolKit.createSafeDeploymentTransaction()
+      await client.sendTransaction({
+        to: deploymentTransaction.to as `0x${string}`,
+        value: BigInt(deploymentTransaction.value),
+        data: deploymentTransaction.data as `0x${string}`,
+      })
+    } catch (e) {
+      if (e instanceof Error) {
+        console.log(e.message)
+      }
+    }
 
-    // // remove bob
-    // await execSafeTransaction(safe, await allowanceModule.removeDelegate.populateTransaction(bob.address, true), owner)
-    // delegates = await allowanceModule.getDelegates(safeAddress, 0, 10)
+    const c = createPublicClient({ chain: arbitrum, transport: http(url) })
 
-    // expect(delegates.results).to.deep.equal([alice.address])
-    // expect(delegates.next).to.equal(0)
+    console.log(await c.getBalance({ address: account.address }))
   })
 })
-

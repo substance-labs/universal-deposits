@@ -11,12 +11,9 @@ export default async function deploySingletons(deployer: SignerWithAddress) {
 
   const safeProxyFactoryAddress = await deploySingleton(factoryAddress, ArtifactSafeProxyFactory.bytecode, deployer)
 
-  const allowanceModuleAddress = await deploySingleton(factoryAddress, SafeModuleArtifact.bytecode, deployer)
-
   return {
     safeMastercopyAddress,
     safeProxyFactoryAddress,
-    allowanceModuleAddress,
   }
 }
 
