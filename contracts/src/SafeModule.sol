@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-only
+/**
+ * Created on 2025-01-17 15:59
+ * @summary: 
+ * @author: mauro
+ */
 pragma solidity ^0.8.28;
 
 import '@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol';
@@ -8,11 +13,6 @@ import 'dln-contracts/libraries/DlnOrderLib.sol';
 import './Enum.sol';
 
 interface ISafe {
-    /// @dev Allows a Module to execute a Safe transaction without any further confirmations.
-    /// @param to Destination address of module transaction.
-    /// @param value Ether value of module transaction.
-    /// @param data Data payload of module transaction.
-    /// @param operation Operation type of module transaction.
     function execTransactionFromModule(
         address to,
         uint256 value,
@@ -63,20 +63,30 @@ contract SafeModule is OwnableUpgradeable {
     mapping(address => uint256) public rates;
     mapping(address => bool) public autoSettlement;
 
-    function initialize(address _deBridgeDlnSource) public initializer {
-        __Ownable_init(msg.sender);
+    /**
+     * Initialize the contract
+     * @param _owner The owner of this contract
+     * @param _autoSettlementToken the first token that will have autoSettlement activated
+     * @param _deBridgeDlnSource deBridge DLN source contract to create orders
+     */
+    function initialize(address _owner, address _autoSettlementToken, address _deBridgeDlnSource) public initializer {
+        __Ownable_init(_owner);
         deBridgeDlnSource = _deBridgeDlnSource;
+        autoSettlement[_autoSettlementToken] = true;
     }
 
+    
     function toggleAutoSettlement(address token) public onlyOwner {
         autoSettlement[token] = !autoSettlement[token];
     }
 
+    
     function setExchangeRate(address token, uint256 exchangeRate) public onlyOwner {
         rates[token] = exchangeRate;
     }
 
-    function settle(address token) public {
+    
+    function settle(ISafe safe, address token) public {
         if (token == address(0)) {
             // TODO: forwards native asset
         } else {
