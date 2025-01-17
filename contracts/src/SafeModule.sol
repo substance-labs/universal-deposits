@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 /**
  * Created on 2025-01-17 15:59
- * @summary: 
+ * @summary:
  * @author: mauro
  */
 pragma solidity ^0.8.28;
@@ -69,23 +69,24 @@ contract SafeModule is OwnableUpgradeable {
      * @param _autoSettlementToken the first token that will have autoSettlement activated
      * @param _deBridgeDlnSource deBridge DLN source contract to create orders
      */
-    function initialize(address _owner, address _autoSettlementToken, address _deBridgeDlnSource) public initializer {
+    function initialize(
+        address _owner,
+        address _autoSettlementToken,
+        address _deBridgeDlnSource
+    ) public initializer {
         __Ownable_init(_owner);
         deBridgeDlnSource = _deBridgeDlnSource;
         autoSettlement[_autoSettlementToken] = true;
     }
 
-    
     function toggleAutoSettlement(address token) public onlyOwner {
         autoSettlement[token] = !autoSettlement[token];
     }
 
-    
     function setExchangeRate(address token, uint256 exchangeRate) public onlyOwner {
         rates[token] = exchangeRate;
     }
 
-    
     function settle(ISafe safe, address token) public {
         if (token == address(0)) {
             // TODO: forwards native asset
