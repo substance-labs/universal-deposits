@@ -1671,7 +1671,8 @@ const config: HardhatUserConfig = {
         network: 'xlayer',
         chainId: 196,
         urls: {
-          apiURL: 'https://www.oklink.com/api/v5/explorer/contract/verify-source-code-plugin/XLAYER',
+          apiURL:
+            'https://www.oklink.com/api/v5/explorer/contract/verify-source-code-plugin/XLAYER',
           browserURL: 'https://www.oklink.com/xlayer',
         },
       },
@@ -1679,7 +1680,8 @@ const config: HardhatUserConfig = {
         network: 'xlayerTestnet',
         chainId: 195,
         urls: {
-          apiURL: 'https://www.oklink.com/api/v5/explorer/contract/verify-source-code-plugin/XLAYER_TESTNET',
+          apiURL:
+            'https://www.oklink.com/api/v5/explorer/contract/verify-source-code-plugin/XLAYER_TESTNET',
           browserURL: 'https://www.oklink.com/xlayer-test',
         },
       },

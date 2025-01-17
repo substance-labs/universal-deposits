@@ -18,7 +18,12 @@ export default async function setup() {
 
   const { safeProxyFactoryAddress, safeMastercopyAddress } = await deploySingletons(deployer)
 
-  const safeAddress = await deploySafeProxy(safeProxyFactoryAddress, safeMastercopyAddress, owner.address, deployer)
+  const safeAddress = await deploySafeProxy(
+    safeProxyFactoryAddress,
+    safeMastercopyAddress,
+    owner.address,
+    deployer,
+  )
   const safeModule = await deploySafeModule(owner)
   const safeModuleAddress = safeModule.getAddress()
   const token = await deployTestToken(deployer)
@@ -35,7 +40,11 @@ export default async function setup() {
   await token.transfer(safeAddress, 1000)
 
   // enable Allowance as mod
-  await execSafeTransaction(safe, await safe.enableModule.populateTransaction(safeModuleAddress), owner)
+  await execSafeTransaction(
+    safe,
+    await safe.enableModule.populateTransaction(safeModuleAddress),
+    owner,
+  )
 
   return {
     // the deployed safe

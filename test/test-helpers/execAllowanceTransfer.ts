@@ -24,7 +24,12 @@ export default async function execAllowanceTransfer(
 
   const [, , , , nonce] = await module.getTokenAllowance(safe, spender.address, token)
 
-  const { domain, types, message } = paramsToSign(address, chainId, { safe, token, to, amount }, nonce)
+  const { domain, types, message } = paramsToSign(
+    address,
+    chainId,
+    { safe, token, to, amount },
+    nonce,
+  )
 
   const signature = await spender.signTypedData(domain, types, message)
 

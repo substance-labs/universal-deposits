@@ -1,12 +1,12 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: 'npm'
+    directory: '/'
     schedule:
-      interval: "weekly"
-      day: "monday"
-    target-branch: "main"
+      interval: 'weekly'
+      day: 'monday'
+    target-branch: 'main'
     labels:
-      - "dependencies"
+      - 'dependencies'
     assignees:
-      - "pcaversaccio"
+      - 'pcaversaccio'

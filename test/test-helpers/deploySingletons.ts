@@ -7,9 +7,17 @@ import { SafeModuleArtifact, ArtifactSafe, ArtifactSafeProxyFactory } from './ar
 export default async function deploySingletons(deployer: SignerWithAddress) {
   const factoryAddress = await deploySingletonFactory(deployer)
 
-  const safeMastercopyAddress = await deploySingleton(factoryAddress, ArtifactSafe.bytecode, deployer)
+  const safeMastercopyAddress = await deploySingleton(
+    factoryAddress,
+    ArtifactSafe.bytecode,
+    deployer,
+  )
 
-  const safeProxyFactoryAddress = await deploySingleton(factoryAddress, ArtifactSafeProxyFactory.bytecode, deployer)
+  const safeProxyFactoryAddress = await deploySingleton(
+    factoryAddress,
+    ArtifactSafeProxyFactory.bytecode,
+    deployer,
+  )
 
   return {
     safeMastercopyAddress,
@@ -19,7 +27,9 @@ export default async function deploySingletons(deployer: SignerWithAddress) {
 
 async function deploySingletonFactory(signer: SignerWithAddress) {
   const { chainId } = await signer.provider.getNetwork()
-  const { address, signerAddress, transaction } = getSingletonFactoryInfo(Number(chainId)) as SingletonFactoryInfo
+  const { address, signerAddress, transaction } = getSingletonFactoryInfo(
+    Number(chainId),
+  ) as SingletonFactoryInfo
 
   // fund the presined transaction signer
   await signer.sendTransaction({

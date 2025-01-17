@@ -1,5 +1,13 @@
 import { SignerWithAddress } from '@nomicfoundation/hardhat-ethers/signers'
-import { AbiCoder, concat, getCreate2Address, Interface, keccak256, ZeroAddress, ZeroHash } from 'ethers'
+import {
+  AbiCoder,
+  concat,
+  getCreate2Address,
+  Interface,
+  keccak256,
+  ZeroAddress,
+  ZeroHash,
+} from 'ethers'
 
 import { ArtifactSafe, ArtifactSafeProxy, ArtifactSafeProxyFactory } from './artifacts'
 
@@ -40,7 +48,10 @@ function calculateInitializer(owner: string): string {
 function calculateProxyAddress(initializer: string, factory: string, mastercopy: string): string {
   const salt = keccak256(concat([keccak256(initializer), ZeroHash]))
 
-  const deploymentData = concat([ArtifactSafeProxy.bytecode, AbiCoder.defaultAbiCoder().encode(['address'], [mastercopy])])
+  const deploymentData = concat([
+    ArtifactSafeProxy.bytecode,
+    AbiCoder.defaultAbiCoder().encode(['address'], [mastercopy]),
+  ])
 
   return getCreate2Address(factory, salt, keccak256(deploymentData))
 }

@@ -7,6 +7,7 @@
     "esModuleInterop": true,
     "outDir": "dist",
     "declaration": true,
+    "declarationMap": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
@@ -21,5 +22,5 @@
     "./test/**/*.ts",
     "./typechain-types/**/*.ts"
   ],
-  "files": ["hardhat.config.ts", "deploy-args.ts", "eslint.config.js", "arguments.js", ".solcover.js"]
+  "files": ["hardhat.config.ts", "deploy-args.ts", "arguments.js", ".solcover.js"]
 }

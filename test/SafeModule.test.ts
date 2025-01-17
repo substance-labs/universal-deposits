@@ -1,14 +1,18 @@
 import Safe, { SafeAccountConfig } from '@safe-global/protocol-kit'
 import { Account, createPublicClient, createWalletClient, http } from 'viem'
+import { addressResolverAbi } from 'viem/_types/constants/abis'
 import { privateKeyToAccount } from 'viem/accounts'
 import { arbitrum } from 'viem/chains'
+import { expect } from 'chai'
 
 describe('safeModule allowanceManagement', () => {
   let url: string
   let account: Account
   before(async () => {
     url = 'http://127.0.0.1:8545'
-    account = privateKeyToAccount('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80') // anvil fork
+    account = privateKeyToAccount(
+      '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+    ) // anvil fork
     // const blockToForkFrom = 295976000 // 2025-01-15
     // await reset(url, blockToForkFrom)
 
@@ -61,5 +65,16 @@ describe('safeModule allowanceManagement', () => {
     const c = createPublicClient({ chain: arbitrum, transport: http(url) })
 
     console.log(await c.getBalance({ address: account.address }))
+
+    const balance = await protocolKit.getBalance()
+    const safeAddress = await protocolKit.getAddress()
+
+    console.log()
+
+    console.log('balance', balance)
+    console.log('address', safeAddress)
+
+    expect(await protocolKit.isOwner(owner)).to.be.true
+    expect(await protocolKit.isOwner(account.address)).to.be.false
   })
 })

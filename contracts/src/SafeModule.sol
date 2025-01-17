@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 pragma solidity ^0.8.28;
 
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "dln-contracts/interfaces/IDlnSource.sol";
-import "dln-contracts/libraries/DlnOrderLib.sol";
-import "./Enum.sol";
+import '@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol';
+import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
+import 'dln-contracts/interfaces/IDlnSource.sol';
+import 'dln-contracts/libraries/DlnOrderLib.sol';
+import './Enum.sol';
 
 interface ISafe {
     /// @dev Allows a Module to execute a Safe transaction without any further confirmations.
@@ -54,8 +54,8 @@ interface ISafe {
 // }
 
 contract SafeModule is OwnableUpgradeable {
-    string public constant NAME = "Allowance Module";
-    string public constant VERSION = "0.1.0";
+    string public constant NAME = 'Allowance Module';
+    string public constant VERSION = '0.1.0';
 
     address public deBridgeDlnSource;
 
@@ -83,7 +83,7 @@ contract SafeModule is OwnableUpgradeable {
             uint256 protocolFee = IDlnSource(deBridgeDlnSource).globalFixedNativeFee();
             uint256 giveAmount = IERC20(token).balanceOf(address(this));
 
-            uint256 takeAmount = giveAmount * (10_000 - 8) / 10_000 - 6;
+            uint256 takeAmount = (giveAmount * (10_000 - 8)) / 10_000 - 6;
             uint8 gnosisChainId = 100;
             // USDT(arbitrum) 0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9
             // USDT(gnosis)   0x4ecaba5870353805a9f068101a40e0f32ed605c6
@@ -100,13 +100,20 @@ contract SafeModule is OwnableUpgradeable {
                 abi.encodePacked(_owner), // receiverDst (bytes)
                 _owner, // givePatchAuthoritySrc (address)
                 abi.encodePacked(_owner), // orderAuthorityAddressDst (bytes)
-                "0x", // allowedTakerDst (bytes)
-                "0x", // externalCall (bytes)
-                "0x" // allowedCancelBeneficiarySrc (bytes)
+                '0x', // allowedTakerDst (bytes)
+                '0x', // externalCall (bytes)
+                '0x' // allowedCancelBeneficiarySrc (bytes)
             );
             IERC20(token).approve(deBridgeDlnSource, giveAmount);
             uint64 salt = uint64(nonce++ + gasleft());
-            IDlnSource(deBridgeDlnSource).createSaltedOrder{value: protocolFee}(order, salt, "0x", 0, "0x", "0x");
+            IDlnSource(deBridgeDlnSource).createSaltedOrder{value: protocolFee}(
+                order,
+                salt,
+                '0x',
+                0,
+                '0x',
+                '0x'
+            );
         }
     }
 }
