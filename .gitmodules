@@ -4,3 +4,6 @@
 [submodule "contracts/lib/dln-contracts"]
 	path = contracts/lib/dln-contracts
 	url = https://github.com/debridge-finance/dln-contracts
+[submodule "contracts/lib/createx-forge"]
+	path = contracts/lib/createx-forge
+	url = https://github.com/radeksvarz/createx-forge
