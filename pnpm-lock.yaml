@@ -13,10 +13,10 @@ importers:
         version: 9.18.0
       '@matterlabs/hardhat-zksync-deploy':
         specifier: ^1.6.0
-        version: 1.6.0(encoding@0.1.13)(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))(hardhat@2.22.18(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10))(zksync-ethers@6.15.3(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10)))
+        version: 1.6.0(encoding@0.1.13)(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))(hardhat@2.22.18(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10))(zksync-ethers@6.15.4(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10)))
       '@matterlabs/hardhat-zksync-ethers':
         specifier: 1.2.1
-        version: 1.2.1(bufferutil@4.0.9)(encoding@0.1.13)(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10)(zksync-ethers@6.15.3(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10)))
+        version: 1.2.1(bufferutil@4.0.9)(encoding@0.1.13)(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10)(zksync-ethers@6.15.4(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10)))
       '@matterlabs/hardhat-zksync-solc':
         specifier: ^1.2.5
         version: 1.2.5(encoding@0.1.13)(hardhat@2.22.18(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10))
@@ -150,8 +150,8 @@ importers:
         specifier: ^3.1.10
         version: 3.1.10(@nomicfoundation/hardhat-ethers@3.0.8(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))(hardhat@2.22.18(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10)))(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))(hardhat@2.22.18(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10))
       zksync-ethers:
-        specifier: ^6.15.3
-        version: 6.15.3(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))
+        specifier: ^6.15.4
+        version: 6.15.4(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))
 
 packages:
 
@@ -4918,8 +4918,8 @@ packages:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
 
-  zksync-ethers@6.15.3:
-    resolution: {integrity: sha512-AAFf5HKlkGpLRSE1CB8gBIlswbnWBPHD2ex4bcFG8GJFr1iQuq+LbMrisDm17jNR4Msi1WkNgIartS7nXcOrTg==}
+  zksync-ethers@6.15.4:
+    resolution: {integrity: sha512-HyxuIfSs+axbk5gB+Nd7fjlVU1+c2IuZ5eJKNG1HLLRhJZsHLigR3AVS3FjTN/9fO/tToIeadxpZbu5M6NNb5A==}
     engines: {node: '>=18.9.0'}
     peerDependencies:
       ethers: ^6.7.1
@@ -5825,7 +5825,7 @@ snapshots:
       bignumber.js: 9.1.2
       rxjs: 7.8.1
 
-  '@matterlabs/hardhat-zksync-deploy@1.6.0(encoding@0.1.13)(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))(hardhat@2.22.18(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10))(zksync-ethers@6.15.3(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10)))':
+  '@matterlabs/hardhat-zksync-deploy@1.6.0(encoding@0.1.13)(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))(hardhat@2.22.18(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10))(zksync-ethers@6.15.4(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10)))':
     dependencies:
       '@matterlabs/hardhat-zksync-solc': 1.2.5(encoding@0.1.13)(hardhat@2.22.18(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10))
       chai: 4.5.0
@@ -5838,21 +5838,21 @@ snapshots:
       sinon: 18.0.1
       sinon-chai: 3.7.0(chai@4.5.0)(sinon@18.0.1)
       ts-morph: 22.0.0
-      zksync-ethers: 6.15.3(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))
+      zksync-ethers: 6.15.4(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))
     transitivePeerDependencies:
       - encoding
       - supports-color
 
-  '@matterlabs/hardhat-zksync-ethers@1.2.1(bufferutil@4.0.9)(encoding@0.1.13)(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10)(zksync-ethers@6.15.3(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10)))':
+  '@matterlabs/hardhat-zksync-ethers@1.2.1(bufferutil@4.0.9)(encoding@0.1.13)(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10)(zksync-ethers@6.15.4(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10)))':
     dependencies:
-      '@matterlabs/hardhat-zksync-deploy': 1.6.0(encoding@0.1.13)(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))(hardhat@2.22.18(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10))(zksync-ethers@6.15.3(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10)))
+      '@matterlabs/hardhat-zksync-deploy': 1.6.0(encoding@0.1.13)(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))(hardhat@2.22.18(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10))(zksync-ethers@6.15.4(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10)))
       '@matterlabs/hardhat-zksync-solc': 1.2.5(encoding@0.1.13)(hardhat@2.22.18(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10))
       '@nomicfoundation/hardhat-ethers': 3.0.8(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))(hardhat@2.22.18(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10))
       chai: 4.5.0
       chalk: 4.1.2
       ethers: 6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       hardhat: 2.22.18(bufferutil@4.0.9)(ts-node@10.9.2(@types/node@22.10.6)(typescript@5.7.3))(typescript@5.7.3)(utf-8-validate@5.0.10)
-      zksync-ethers: 6.15.3(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))
+      zksync-ethers: 6.15.4(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10))
     transitivePeerDependencies:
       - bufferutil
       - c-kzg
@@ -11251,7 +11251,7 @@ snapshots:
 
   yocto-queue@0.1.0: {}
 
-  zksync-ethers@6.15.3(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10)):
+  zksync-ethers@6.15.4(ethers@6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10)):
     dependencies:
       ethers: 6.13.5(bufferutil@4.0.9)(utf-8-validate@5.0.10)
 
