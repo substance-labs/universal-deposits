@@ -10,16 +10,8 @@ import '@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import 'dln-contracts/interfaces/IDlnSource.sol';
 import 'dln-contracts/libraries/DlnOrderLib.sol';
-import './Enum.sol';
+import './interfaces/ISafe.sol';
 
-interface ISafe {
-    function execTransactionFromModule(
-        address to,
-        uint256 value,
-        bytes calldata data,
-        Enum.Operation operation
-    ) external returns (bool success);
-}
 // struct OrderCreation {
 //     /// Address of the ERC-20 token that the maker is offering as part of this order.
 //     /// Use the zero address to indicate that the maker is offering a native blockchain token (such as Ether, Matic, etc.).
@@ -77,6 +69,8 @@ contract SafeModule is OwnableUpgradeable {
         __Ownable_init(_owner);
         deBridgeDlnSource = _deBridgeDlnSource;
         autoSettlement[_autoSettlementToken] = true;
+
+        // if _autoSettlementToken.balance > 0 => move the tokens already
     }
 
     function toggleAutoSettlement(address token) public onlyOwner {

@@ -18,16 +18,10 @@ import '@matterlabs/hardhat-zksync-ethers'
 
 import '@openzeppelin/hardhat-upgrades'
 
-// Uncomment if you want to use the Truffle Dashboard module
-// You must also uncomment the subsequent `truffle` configuration in this file accordingly
-// import "@truffle/dashboard-hardhat-plugin";
 import 'hardhat-gas-reporter'
 import 'hardhat-abi-exporter'
 import 'solidity-coverage'
 import 'hardhat-contract-sizer'
-// Uncomment if you want to use the Hardhat Tenderly module
-// You must also uncomment the subsequent `tenderly` configuration in this file accordingly
-// import "@tenderly/hardhat-tenderly";
 
 const ethMainnetUrl = vars.get('ETH_MAINNET_URL', 'https://rpc.ankr.com/eth')
 const accounts = [
