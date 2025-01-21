@@ -11,6 +11,7 @@ import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import 'dln-contracts/interfaces/IDlnSource.sol';
 import 'dln-contracts/libraries/DlnOrderLib.sol';
 import './interfaces/ISafe.sol';
+import './interfaces/IModuleManager.sol';
 
 // struct OrderCreation {
 //     /// Address of the ERC-20 token that the maker is offering as part of this order.
@@ -49,28 +50,27 @@ contract SafeModule is OwnableUpgradeable {
     string public constant NAME = 'Allowance Module';
     string public constant VERSION = '0.1.0';
 
+    address public legacySafe;
     address public deBridgeDlnSource;
+
+    address immutable usdtArbitrum = 0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9;
+    address immutable usdtGnosis = 0x4ECaBa5870353805a9F068101A40E0f32ed605C6;
 
     uint256 nonce;
     mapping(address => uint256) public rates;
     mapping(address => bool) public autoSettlement;
 
-    /**
-     * Initialize the contract
-     * @param _owner The owner of this contract
-     * @param _autoSettlementToken the first token that will have autoSettlement activated
-     * @param _deBridgeDlnSource deBridge DLN source contract to create orders
-     */
     function initialize(
-        address _owner,
+        address _legacySafe,
         address _autoSettlementToken,
         address _deBridgeDlnSource
     ) public initializer {
-        __Ownable_init(_owner);
+        __Ownable_init(tx.origin);
+        legacySafe = _legacySafe;
         deBridgeDlnSource = _deBridgeDlnSource;
         autoSettlement[_autoSettlementToken] = true;
 
-        // if _autoSettlementToken.balance > 0 => move the tokens already
+        // if _autoSettlementToken.balance > 0 => call settle
     }
 
     function toggleAutoSettlement(address token) public onlyOwner {
@@ -81,44 +81,87 @@ contract SafeModule is OwnableUpgradeable {
         rates[token] = exchangeRate;
     }
 
-    function settle(ISafe safe, address token) public {
+    function settle(ISafe safe, address token) public payable {
         if (token == address(0)) {
             // TODO: forwards native asset
         } else {
             uint256 protocolFee = IDlnSource(deBridgeDlnSource).globalFixedNativeFee();
-            uint256 giveAmount = IERC20(token).balanceOf(address(this));
+            uint256 giveAmount = IERC20(usdtArbitrum).balanceOf(address(safe));
 
             uint256 takeAmount = (giveAmount * (10_000 - 8)) / 10_000 - 6;
-            uint8 gnosisChainId = 100;
-            // USDT(arbitrum) 0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9
-            // USDT(gnosis)   0x4ecaba5870353805a9f068101a40e0f32ed605c6
+            uint256 gnosisChainId = 100000002;
 
-            address usdtGnosis = 0x4ECaBa5870353805a9F068101A40E0f32ed605C6;
-            address _owner = owner();
-            // owner is relative to the secondary safe
-            DlnOrderLib.OrderCreation memory order = DlnOrderLib.OrderCreation(
-                token, // giveTokenAddress (address)
-                giveAmount, // giveAmount (uint256)
-                abi.encodePacked(usdtGnosis), // takeTokenAddress (bytes)
-                takeAmount, // takeAmount (uint256)
-                gnosisChainId, // takeChainId (uint256)
-                abi.encodePacked(_owner), // receiverDst (bytes)
-                _owner, // givePatchAuthoritySrc (address)
-                abi.encodePacked(_owner), // orderAuthorityAddressDst (bytes)
-                '0x', // allowedTakerDst (bytes)
-                '0x', // externalCall (bytes)
-                '0x' // allowedCancelBeneficiarySrc (bytes)
-            );
-            IERC20(token).approve(deBridgeDlnSource, giveAmount);
-            uint64 salt = uint64(nonce++ + gasleft());
-            IDlnSource(deBridgeDlnSource).createSaltedOrder{value: protocolFee}(
-                order,
-                salt,
-                '0x',
-                0,
-                '0x',
-                '0x'
-            );
+            // bytes memory empty = new bytes(0);
+            // DlnOrderLib.OrderCreation memory order = DlnOrderLib.OrderCreation(
+            //     usdtArbitrum, // giveTokenAddress (address)
+            //     giveAmount, // giveAmount (uint256)
+            //     abi.encodePacked(usdtGnosis), // takeTokenAddress (bytes)
+            //     takeAmount, // takeAmount (uint256)
+            //     gnosisChainId, // takeChainId (uint256)
+            //     abi.encodePacked(legacySafe), // receiverDst (bytes)
+            //     address(safe), // givePatchAuthoritySrc (address)
+            //     abi.encodePacked(legacySafe), // orderAuthorityAddressDst (bytes)
+            //     abi.encodePacked(address(0x555CE236C0220695b68341bc48C68d52210cC35b)), // allowedTakerDst (bytes)
+            //     empty, // externalCall (bytes)
+            //     empty // allowedCancelBeneficiarySrc (bytes)
+            // );
+
+            // IModuleManager(safe).execTransactionFromModule(
+            //     token, // address to,
+            //     0, // uint256 value,
+            //     abi.encodeWithSignature('approve(address,uint256)', deBridgeDlnSource, giveAmount), // bytes calldata data,
+            //     Enum.Operation.Call // Enum.Operation operation,
+            // );
+
+            // IDlnSource(deBridgeDlnSource).createSaltedOrder{value: protocolFee}(
+            //     order,
+            //     salt,
+            //     empty,
+            //     0,
+            //     empty,
+            //     empty
+            // );
+
+            // address multisendContract = 0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526;
+
+            // bytes memory approveCalldata = abi.encodeWithSignature(
+            //     'approve(address,uint256)',
+            //     deBridgeDlnSource,
+            //     giveAmount
+            // );
+            // uint64 salt = uint64(nonce++ + gasleft());
+            // bytes memory createOrderCalldata = abi.encodeWithSelector(
+            //     IDlnSource.createSaltedOrder.selector,
+            //     order,
+            //     salt,
+            //     empty,
+            //     0,
+            //     empty,
+            //     empty
+            // );
+            // bytes memory txs = bytes.concat(
+            //     abi.encodePacked(
+            //         uint8(0),
+            //         token,
+            //         uint256(0),
+            //         approveCalldata.length,
+            //         approveCalldata
+            //     ),
+            //     abi.encodePacked(
+            //         uint8(0),
+            //         deBridgeDlnSource,
+            //         uint256(protocolFee),
+            //         createOrderCalldata.length,
+            //         createOrderCalldata
+            //     )
+            // );
+
+            // IModuleManager(safe).execTransactionFromModule(
+            //     multisendContract, // address to,
+            //     0, // uint256 value,
+            //     abi.encodeWithSignature('multiSend(bytes)', txs), // bytes calldata data,
+            //     Enum.Operation.DelegateCall // Enum.Operation operation,
+            // );
         }
     }
 }
