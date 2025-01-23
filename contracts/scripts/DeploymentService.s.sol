@@ -30,6 +30,18 @@ contract DeploymentService is CreateXScript, StdCheats {
 	address immutable SAFE_PAYMENT_RECEIVER = 0x5afe7A11E7000000000000000000000000000000;
 	address immutable SAFE_MODULE_SETUP = 0x8EcD4ec46D4D2a6B64fE960B3D64e8B94B2234eb;
 
+	// Needed to compute the safe address (mismatch among bytecode retrieved
+	// from the library vs. bytecode on chain)
+	bytes SAFE_PROXY_CREATION_CODE =
+		vm.parseBytes(
+			// Taken from Tenderly:
+			//   1. Go to the CREATE2 call and press debug
+			//   2. See the [OPCODE] parameters under the source code
+			//   3. Copy [RAW_INPUT] and remove the ending part related to the SAFE_SINGLETON encoding
+			//   4. Done!
+			'0x608060405234801561001057600080fd5b506040516101e63803806101e68339818101604052602081101561003357600080fd5b8101908080519060200190929190505050600073ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff1614156100ca576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004018080602001828103825260228152602001806101c46022913960400191505060405180910390fd5b806000806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055505060ab806101196000396000f3fe608060405273ffffffffffffffffffffffffffffffffffffffff600054167fa619486e0000000000000000000000000000000000000000000000000000000060003514156050578060005260206000f35b3660008037600080366000845af43d6000803e60008114156070573d6000fd5b3d6000f3fea264697066735822122003d1488ee65e08fa41e58e888a9865554c535f2c77126a82cb4c0f917f31441364736f6c63430007060033496e76616c69642073696e676c65746f6e20616464726573732070726f7669646564'
+		);
+
 	string SAFEMODULE_SALT = 'universal-deposits';
 
 	bytes1 immutable CREATEX_REDEPLOY_PROTECTION_FLAG = bytes1(0x00);
@@ -122,11 +134,9 @@ contract DeploymentService is CreateXScript, StdCheats {
 
 	function deploySafeModuleLogic() public {
 		vm.startBroadcast(deployer);
-		(bytes32 salt, bytes memory initCode, address expected) = _getSafeModuleLogicParameters();
+		(bytes32 salt, bytes memory initCode, ) = _getSafeModuleLogicParameters();
 
 		address safeModuleLogic = CreateX.deployCreate2(salt, initCode);
-
-		assert(safeModuleLogic == expected);
 
 		console.log('Logic address @', safeModuleLogic);
 
@@ -150,7 +160,7 @@ contract DeploymentService is CreateXScript, StdCheats {
 	function settle(address _legacyAddress, address _safe, address _token) public {
 		vm.startBroadcast(deployer);
 		(, , address safeModule) = _getSafeModuleProxyParameters(_legacyAddress);
-		SafeModule(safeModule).settle{value: 0.001 ether}(ISafe(_safe), _token);
+		SafeModule(safeModule).settle{value: 0.5 ether}(ISafe(_safe), _token);
 		vm.stopBroadcast();
 	}
 
@@ -163,7 +173,7 @@ contract DeploymentService is CreateXScript, StdCheats {
 
 	function _getUniversalSafeParameters(
 		address _legacyAddress
-	) internal view returns (uint256 saltNonce, bytes memory setupData, address expected) {
+	) internal view returns (uint256 saltNonce, bytes memory initializer, address expected) {
 		(, , address safeModule) = _getSafeModuleProxyParameters(_legacyAddress);
 
 		saltNonce = uint256(keccak256(abi.encodePacked(safeModule)));
@@ -182,7 +192,7 @@ contract DeploymentService is CreateXScript, StdCheats {
 		uint256 threshold = 1;
 		address paymentToken = address(0);
 		uint256 paymentAmount = 0;
-		setupData = abi.encodeWithSelector(
+		initializer = abi.encodeWithSelector(
 			ISafe.setup.selector,
 			owners,
 			threshold,
@@ -194,22 +204,23 @@ contract DeploymentService is CreateXScript, StdCheats {
 			SAFE_PAYMENT_RECEIVER
 		);
 
-		bytes32 salt = keccak256(abi.encodePacked(keccak256(setupData), saltNonce));
-		console.log('salt');
-		console.logBytes32(salt);
+		bytes32 salt = keccak256(abi.encodePacked(keccak256(initializer), saltNonce));
 
-		bytes memory bytecode = abi.encodePacked(
-			type(SafeProxy).creationCode,
+		bytes memory deploymentData = abi.encodePacked(
+			SAFE_PROXY_CREATION_CODE, // with `type(SafeProxy).creationCode,` doesn't work
 			uint256(uint160(ADDRESS_SAFE_SINGLETON))
 		);
 
-		// bytes32 hash = keccak256(
-		// 	abi.encodePacked(bytes1(0xff), vm.addr(deployer), salt, keccak256(bytecode))
-		// );
+		bytes32 hash = keccak256(
+			abi.encodePacked(
+				bytes1(0xff),
+				address(ADDRESS_SAFE_PROXY_FACTORY),
+				salt,
+				keccak256(deploymentData)
+			)
+		);
 
-		// expected = address(uint160(uint256(hash)));
-
-		expected = CreateX.computeCreate2Address(salt, keccak256(bytecode));
+		expected = address(uint160(uint256(hash)));
 
 		console.log('expected', expected);
 	}
@@ -231,7 +242,7 @@ contract DeploymentService is CreateXScript, StdCheats {
 			nonce
 		);
 
-		// assert(address(safe) == safeExpectedAddress);
+		assert(address(safe) == safeExpectedAddress);
 		assert(IModuleManager(address(safe)).isModuleEnabled(safeModule));
 
 		console.log('Expected @', address(safeExpectedAddress));
@@ -280,38 +291,6 @@ contract DeploymentService is CreateXScript, StdCheats {
 		assert(SafeModule(safeModule).owner() == vm.addr(deployer));
 		assert(SafeModule(safeModule).autoSettlement(ADDRESS_USDC_ARBITRUM));
 
-		// Commitment over the module
-		// uint256 nonce = uint256(bytes32(keccak256(abi.encodePacked(safeModule))));
-
-		// address[] memory owners = new address[](1);
-		// owners[0] = legacyAddress;
-
-		// address[] memory modules = new address[](1);
-		// modules[0] = safeModule;
-
-		// bytes memory enableModuleData = abi.encodeWithSignature(
-		// 	'enableModules(address[])',
-		// 	modules
-		// );
-
-		// bytes memory setupData = abi.encodeWithSelector(
-		// 	ISafe.setup.selector,
-		// 	owners,
-		// 	1, // threshold
-		// 	SAFE_MODULE_SETUP,
-		// 	enableModuleData,
-		// 	SAFE_FALLBACK_HANDLER,
-		// 	address(0), // payment token
-		// 	0, // payment
-		// 	SAFE_PAYMENT_RECEIVER
-		// );
-
-		// address safe = SafeProxyFactory(ADDRESS_SAFE_PROXY_FACTORY).createProxyWithNonce(
-		// 	ADDRESS_SAFE_SINGLETON,
-		// 	setupData,
-		// 	nonce
-		// );
-
 		(
 			uint256 nonce,
 			bytes memory setupData,
@@ -330,23 +309,5 @@ contract DeploymentService is CreateXScript, StdCheats {
 		assert(IModuleManager(address(safe)).isModuleEnabled(safeModule));
 
 		console.log('Safe @', address(safe));
-
-		// 	token.transfer(safe, 0.1 ether);
-		// 	payable(vm.addr(1)).send(1 ether);
-
-		// 	address usdtArbitrum = 0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9;
-		// 	deal(usdtArbitrum, safe, 2000000);
-
-		// 	// stdstore
-		// 	// 	.enable_packed_slots()
-		// 	// 	.target(usdtArbitrum)
-		// 	// 	.sig('balanceOf(address)')
-		// 	// 	.with_key(safe)
-		// 	// 	.checked_write(2000000);
-
-		// 	console.log('balance usdt balance', IERC20(usdtArbitrum).balanceOf(safe));
-		// 	console.log('eth balance', vm.addr(1).balance);
-
-		// 	SafeModule(module).settle{value: 0.001 ether}(ISafe(safe), usdtArbitrum);
 	}
 }

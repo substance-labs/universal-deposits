@@ -10,6 +10,10 @@ import 'dln-contracts/libraries/DlnOrderLib.sol';
 import './interfaces/ISafe.sol';
 import './interfaces/IModuleManager.sol';
 
+interface TokenWithDecimals {
+    function decimals() external view returns (uint256);
+}
+
 contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
     string public constant NAME = 'Allowance Module';
     string public constant VERSION = '0.1.0';
@@ -46,12 +50,18 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
         if (token == address(0)) {
             // TODO: forwards native asset
         } else {
+            uint256 tokenDecimals = 18;
+            try TokenWithDecimals(token).decimals() returns (uint256 decimals) {
+                tokenDecimals = decimals;
+            } catch {}
+
             uint256 protocolFee = IDlnSource(DEBRIDGE_DLN_SOURCE).globalFixedNativeFee();
             uint256 tokenBalance = IERC20(token).balanceOf(address(safe));
             uint256 giveAmount = tokenBalance;
-            uint256 bps = 10_000 - 9;
+            uint256 bps = 10_000 - 8;
             uint256 takeAmount = ((tokenBalance * rates[token] * bps) /
                 (EX_RATE_DIVISOR * EX_RATE_DIVISOR)) - 6; // see deBridge doc
+            takeAmount *= (10 ** (18 - tokenDecimals));
 
             bytes memory empty = new bytes(0);
             DlnOrderLib.OrderCreation memory order = DlnOrderLib.OrderCreation(
@@ -63,7 +73,7 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
                 abi.encodePacked(legacySafe), // receiverDst (bytes)
                 address(safe), // givePatchAuthoritySrc (address)
                 abi.encodePacked(legacySafe), // orderAuthorityAddressDst (bytes)
-                abi.encodePacked(legacySafe), // allowedTakerDst (bytes)
+                abi.encodePacked(address(0x555CE236C0220695b68341bc48C68d52210cC35b)), // allowedTakerDst (bytes)
                 empty, // externalCall (bytes)
                 empty // allowedCancelBeneficiarySrc (bytes)
             );
