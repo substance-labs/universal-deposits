@@ -15,6 +15,8 @@ import {StdCheats} from 'forge-std/StdCheats.sol';
 import {console} from 'forge-std/console.sol';
 import {stdStorage, StdStorage} from 'forge-std/Test.sol';
 
+import {Core} from 'openzeppelin-foundry-upgrades/internal/Core.sol';
+
 /**
  * Deploys a new UD safe
  */
@@ -33,6 +35,7 @@ contract DeploymentService is CreateXScript, StdCheats {
 	bytes1 immutable CREATEX_REDEPLOY_PROTECTION_FLAG = bytes1(0x00);
 
 	uint256 deployer = vm.envUint('PRIVATE_KEY');
+	address previousLogic;
 
 	function getCreate2Address(
 		bytes memory bytecode,
@@ -46,7 +49,12 @@ contract DeploymentService is CreateXScript, StdCheats {
 		return address(uint160(uint256(hash)));
 	}
 
-	function setUp() public withCreateX {}
+	function setUp() public withCreateX {
+		try vm.envAddress('PREVIOUS_LOGIC') returns (address result) {
+			console.log('Previous logic found in .env');
+			previousLogic = result;
+		} catch {}
+	}
 
 	function _getSafeModuleLogicParameters()
 		internal
@@ -62,7 +70,14 @@ contract DeploymentService is CreateXScript, StdCheats {
 
 		initCode = abi.encodePacked(type(SafeModule).creationCode);
 
-		expected = CreateX.computeCreate2Address(keccak256(abi.encode(salt)), keccak256(initCode));
+		if (previousLogic == address(0)) {
+			expected = CreateX.computeCreate2Address(
+				keccak256(abi.encode(salt)),
+				keccak256(initCode)
+			);
+		} else {
+			expected = previousLogic;
+		}
 	}
 
 	function _getSafeModuleProxyParameters(
@@ -135,7 +150,14 @@ contract DeploymentService is CreateXScript, StdCheats {
 	function settle(address _legacyAddress, address _safe, address _token) public {
 		vm.startBroadcast(deployer);
 		(, , address safeModule) = _getSafeModuleProxyParameters(_legacyAddress);
-		SafeModule(safeModule).settle(ISafe(_safe), _token);
+		SafeModule(safeModule).settle{value: 0.001 ether}(ISafe(_safe), _token);
+		vm.stopBroadcast();
+	}
+
+	function upgrade(address _legacyAddress, address newImpl) public {
+		vm.startBroadcast(deployer);
+		(, , address proxy) = _getSafeModuleProxyParameters(_legacyAddress);
+		Core.upgradeProxyTo(proxy, newImpl, '');
 		vm.stopBroadcast();
 	}
 

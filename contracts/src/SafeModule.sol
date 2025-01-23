@@ -1,19 +1,16 @@
 // SPDX-License-Identifier: LGPL-3.0-only
-/**
- * Created on 2025-01-17 15:59
- * @summary:
- * @author: mauro
- */
+
 pragma solidity ^0.8.28;
 
 import '@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol';
+import '@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol';
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import 'dln-contracts/interfaces/IDlnSource.sol';
 import 'dln-contracts/libraries/DlnOrderLib.sol';
 import './interfaces/ISafe.sol';
 import './interfaces/IModuleManager.sol';
 
-contract SafeModule is OwnableUpgradeable {
+contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
     string public constant NAME = 'Allowance Module';
     string public constant VERSION = '0.1.0';
 
@@ -50,10 +47,11 @@ contract SafeModule is OwnableUpgradeable {
             // TODO: forwards native asset
         } else {
             uint256 protocolFee = IDlnSource(DEBRIDGE_DLN_SOURCE).globalFixedNativeFee();
-            uint256 giveAmount = (IERC20(token).balanceOf(address(safe)) * rates[token]) /
-                EX_RATE_DIVISOR;
-
-            uint256 takeAmount = (giveAmount * (10_000 - 8)) / 10_000 - 6;
+            uint256 tokenBalance = IERC20(token).balanceOf(address(safe));
+            uint256 giveAmount = tokenBalance;
+            uint256 bps = 10_000 - 9;
+            uint256 takeAmount = ((tokenBalance * rates[token] * bps) /
+                (EX_RATE_DIVISOR * EX_RATE_DIVISOR)) - 6; // see deBridge doc
 
             bytes memory empty = new bytes(0);
             DlnOrderLib.OrderCreation memory order = DlnOrderLib.OrderCreation(
@@ -102,6 +100,13 @@ contract SafeModule is OwnableUpgradeable {
                 )
             );
 
+            // Check re-entrancy
+            (bool success, ) = address(safe).call{value: protocolFee}('');
+
+            if (!success) {
+                revert('Failed to send ETH to safe');
+            }
+
             IModuleManager(safe).execTransactionFromModule(
                 SAFE_MULTISEND, // address to,
                 0, // uint256 value,
@@ -110,4 +115,6 @@ contract SafeModule is OwnableUpgradeable {
             );
         }
     }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }
