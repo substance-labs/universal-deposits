@@ -15,27 +15,35 @@ interface TokenWithDecimals {
 }
 
 contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
-    string public constant NAME = 'Allowance Module';
+    error AutoSettlementDisabled();
+    string public constant NAME = 'Universal Deposits Module';
     string public constant VERSION = '0.1.0';
 
-    address public legacySafe;
+    address internal constant SAFE_MULTISEND = 0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526;
+    address internal constant DEBRIDGE_DLN_SOURCE = 0xeF4fB24aD0916217251F553c0596F8Edc630EB66;
+    uint256 internal constant EX_RATE_DIVISOR = 10_000;
 
-    address immutable SAFE_MULTISEND = 0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526;
-    address immutable DEBRIDGE_DLN_SOURCE = 0xeF4fB24aD0916217251F553c0596F8Edc630EB66;
-    uint256 immutable DEBRIDGE_GNOSIS_CHAIN_ID = 100000002;
+    address public destinationAddress;
+    address public destinationToken;
+    uint256 public destinationChain;
+    uint256 nonce;
 
-    address immutable EURe_GNOSIS = 0xcB444e90D8198415266c6a2724b7900fb12FC56E;
+    // address immutable EURe_GNOSIS = 0xcB444e90D8198415266c6a2724b7900fb12FC56E;
 
     // @dev we allow 4 decimals for the exchange rate
-    uint256 immutable EX_RATE_DIVISOR = 10_000;
 
-    uint256 nonce;
     mapping(address => uint256) public rates;
     mapping(address => bool) public autoSettlement;
 
-    function initialize(address _legacySafe) public initializer {
+    function initialize(
+        address _destinationAddress,
+        address _destinationToken,
+        uint256 _destinationChain
+    ) public initializer {
         __Ownable_init(tx.origin); // deployer address
-        legacySafe = _legacySafe;
+        destinationAddress = _destinationAddress;
+        destinationToken = _destinationToken;
+        destinationChain = _destinationChain;
     }
 
     function toggleAutoSettlement(address token) external onlyOwner {
@@ -46,17 +54,15 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
         rates[token] = exchangeRate;
     }
 
-    function settle(ISafe safe, address token) external payable {
+    function settle(address safe, address token) external payable {
+        if (!autoSettlement[token]) revert AutoSettlementDisabled();
+
         if (token == address(0)) {
             // TODO: forwards native asset
         } else {
-            uint256 tokenDecimals = 18;
-            try TokenWithDecimals(token).decimals() returns (uint256 decimals) {
-                tokenDecimals = decimals;
-            } catch {}
-
+            uint256 tokenDecimals = _getTokenDecimals(token);
             uint256 protocolFee = IDlnSource(DEBRIDGE_DLN_SOURCE).globalFixedNativeFee();
-            uint256 tokenBalance = IERC20(token).balanceOf(address(safe));
+            uint256 tokenBalance = IERC20(token).balanceOf(safe);
             uint256 giveAmount = tokenBalance;
             uint256 bps = 10_000 - 8;
             uint256 takeAmount = ((tokenBalance * rates[token] * bps) /
@@ -67,12 +73,12 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
             DlnOrderLib.OrderCreation memory order = DlnOrderLib.OrderCreation(
                 token, // giveTokenAddress (address)
                 giveAmount, // giveAmount (uint256)
-                abi.encodePacked(EURe_GNOSIS), // takeTokenAddress (bytes)
+                abi.encodePacked(destinationToken), // takeTokenAddress (bytes)
                 takeAmount, // takeAmount (uint256)
-                DEBRIDGE_GNOSIS_CHAIN_ID, // takeChainId (uint256)
-                abi.encodePacked(legacySafe), // receiverDst (bytes)
-                address(safe), // givePatchAuthoritySrc (address)
-                abi.encodePacked(legacySafe), // orderAuthorityAddressDst (bytes)
+                destinationChain, // takeChainId (uint256)
+                abi.encodePacked(destinationAddress), // receiverDst (bytes)
+                safe, // givePatchAuthoritySrc (address)
+                abi.encodePacked(destinationAddress), // orderAuthorityAddressDst (bytes)
                 abi.encodePacked(address(0x555CE236C0220695b68341bc48C68d52210cC35b)), // allowedTakerDst (bytes)
                 empty, // externalCall (bytes)
                 empty // allowedCancelBeneficiarySrc (bytes)
@@ -111,7 +117,7 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
             );
 
             // Check re-entrancy
-            (bool success, ) = address(safe).call{value: protocolFee}('');
+            (bool success, ) = safe.call{value: protocolFee}('');
 
             if (!success) {
                 revert('Failed to send ETH to safe');
@@ -126,5 +132,13 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
         }
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    function _getTokenDecimals(address token) internal view returns (uint256) {
+        try TokenWithDecimals(token).decimals() returns (uint256 decimals) {
+            return decimals;
+        } catch {}
+
+        return 18;
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override {}
 }

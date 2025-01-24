@@ -10,6 +10,7 @@ import {IModuleManager} from '../src/interfaces/IModuleManager.sol';
 import {Enum} from '../src/interfaces/Enum.sol';
 import {SafeProxy} from '@safe-global/safe-contracts/contracts/proxies/SafeProxy.sol';
 import {SafeProxyFactory} from '@safe-global/safe-contracts/contracts/proxies/SafeProxyFactory.sol';
+import {IDlnSource} from 'dln-contracts/interfaces/IDlnSource.sol';
 
 import {StdCheats} from 'forge-std/StdCheats.sol';
 import {console} from 'forge-std/console.sol';
@@ -29,6 +30,7 @@ contract DeploymentService is CreateXScript, StdCheats {
 	address immutable SAFE_FALLBACK_HANDLER = 0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99;
 	address immutable SAFE_PAYMENT_RECEIVER = 0x5afe7A11E7000000000000000000000000000000;
 	address immutable SAFE_MODULE_SETUP = 0x8EcD4ec46D4D2a6B64fE960B3D64e8B94B2234eb;
+	address immutable DEBRIDGE_DLN_SOURCE = 0xeF4fB24aD0916217251F553c0596F8Edc630EB66;
 
 	// Needed to compute the safe address (mismatch among bytecode retrieved
 	// from the library vs. bytecode on chain)
@@ -47,6 +49,11 @@ contract DeploymentService is CreateXScript, StdCheats {
 	bytes1 immutable CREATEX_REDEPLOY_PROTECTION_FLAG = bytes1(0x00);
 
 	uint256 deployer = vm.envUint('PRIVATE_KEY');
+	address deployerAddress = vm.addr(deployer);
+	address destinationAddress = vm.envAddress('DESTINATION_ADDRESS');
+	address destinationToken = vm.envAddress('DESTINATION_TOKEN');
+	uint256 destinationChain = vm.envUint('DESTINATION_CHAIN');
+
 	address previousLogic;
 
 	function getCreate2Address(
@@ -92,18 +99,22 @@ contract DeploymentService is CreateXScript, StdCheats {
 		}
 	}
 
-	function _getSafeModuleProxyParameters(
-		address _legacyAddress
-	) internal view returns (bytes32 salt, bytes memory initCode, address expected) {
+	function _getSafeModuleProxyParameters()
+		internal
+		view
+		returns (bytes32 salt, bytes memory initCode, address expected)
+	{
 		(, , address safeModuleLogic) = _getSafeModuleLogicParameters();
-
 		bytes memory safeModuleLogicInitializeData = abi.encodeWithSignature(
-			'initialize(address)',
-			_legacyAddress
+			'initialize(address,address,address)',
+			destinationAddress
 		);
 
 		salt = bytes32(
-			bytes.concat(abi.encodePacked(_legacyAddress), CREATEX_REDEPLOY_PROTECTION_FLAG)
+			bytes.concat(
+				abi.encodePacked(destinationAddress, destinationToken, destinationChain),
+				CREATEX_REDEPLOY_PROTECTION_FLAG
+			)
 		);
 
 		initCode = abi.encodePacked(
@@ -114,18 +125,18 @@ contract DeploymentService is CreateXScript, StdCheats {
 		expected = CreateX.computeCreate2Address(keccak256(abi.encode(salt)), keccak256(initCode));
 	}
 
-	function toggleAutoSettlement(address _legacyAddress, address _token) public {
+	function toggleAutoSettlement(address _token) public {
 		vm.startBroadcast(deployer);
-		(, , address proxy) = _getSafeModuleProxyParameters(_legacyAddress);
+		(, , address proxy) = _getSafeModuleProxyParameters();
 
 		SafeModule(proxy).toggleAutoSettlement(_token);
 
 		vm.stopBroadcast();
 	}
 
-	function setExchangeRate(address _legacyAddress, address _token, uint256 _rate) public {
+	function setExchangeRate(address _token, uint256 _rate) public {
 		vm.startBroadcast(deployer);
-		(, , address proxy) = _getSafeModuleProxyParameters(_legacyAddress);
+		(, , address proxy) = _getSafeModuleProxyParameters();
 
 		SafeModule(proxy).setExchangeRate(_token, _rate);
 
@@ -143,11 +154,9 @@ contract DeploymentService is CreateXScript, StdCheats {
 		vm.stopBroadcast();
 	}
 
-	function deploySafeModuleProxy(address _legacyAddress) public {
+	function deploySafeModuleProxy() public {
 		vm.startBroadcast(deployer);
-		(bytes32 salt, bytes memory initCode, address expected) = _getSafeModuleProxyParameters(
-			_legacyAddress
-		);
+		(bytes32 salt, bytes memory initCode, address expected) = _getSafeModuleProxyParameters();
 
 		address safeModule = CreateX.deployCreate2(salt, initCode);
 
@@ -157,29 +166,33 @@ contract DeploymentService is CreateXScript, StdCheats {
 		vm.stopBroadcast();
 	}
 
-	function settle(address _legacyAddress, address _safe, address _token) public {
+	function settle(address _token) public {
 		vm.startBroadcast(deployer);
-		(, , address safeModule) = _getSafeModuleProxyParameters(_legacyAddress);
-		SafeModule(safeModule).settle{value: 0.5 ether}(ISafe(_safe), _token);
+		(, , address safeModule) = _getSafeModuleProxyParameters();
+		(, , address safe) = _getUniversalSafeParameters();
+		uint256 protocolFee = IDlnSource(DEBRIDGE_DLN_SOURCE).globalFixedNativeFee();
+		SafeModule(safeModule).settle{value: protocolFee}(safe, _token);
 		vm.stopBroadcast();
 	}
 
-	function upgrade(address _legacyAddress, address newImpl) public {
-		vm.startBroadcast(deployer);
-		(, , address proxy) = _getSafeModuleProxyParameters(_legacyAddress);
+	function upgrade(address newImpl) public {
+		vm.startBroadcast(vm.envUint('OTHER'));
+		(, , address proxy) = _getSafeModuleProxyParameters();
 		Core.upgradeProxyTo(proxy, newImpl, '');
 		vm.stopBroadcast();
 	}
 
-	function _getUniversalSafeParameters(
-		address _legacyAddress
-	) internal view returns (uint256 saltNonce, bytes memory initializer, address expected) {
-		(, , address safeModule) = _getSafeModuleProxyParameters(_legacyAddress);
+	function _getUniversalSafeParameters()
+		internal
+		view
+		returns (uint256 saltNonce, bytes memory initializer, address expected)
+	{
+		(, , address safeModule) = _getSafeModuleProxyParameters();
 
 		saltNonce = uint256(keccak256(abi.encodePacked(safeModule)));
 
 		address[] memory owners = new address[](1);
-		owners[0] = _legacyAddress;
+		owners[0] = destinationAddress;
 
 		address[] memory modules = new address[](1);
 		modules[0] = safeModule;
@@ -221,20 +234,14 @@ contract DeploymentService is CreateXScript, StdCheats {
 		);
 
 		expected = address(uint160(uint256(hash)));
-
-		console.log('expected', expected);
 	}
 
-	function deployUniversalSafe(address _legacyAddress) public {
+	function deployUniversalSafe() public {
 		vm.startBroadcast(deployer);
 
-		(, , address safeModule) = _getSafeModuleProxyParameters(_legacyAddress);
+		(, , address safeModule) = _getSafeModuleProxyParameters();
 
-		(
-			uint256 nonce,
-			bytes memory setupData,
-			address safeExpectedAddress
-		) = _getUniversalSafeParameters(_legacyAddress);
+		(uint256 nonce, bytes memory setupData, address expected) = _getUniversalSafeParameters();
 
 		SafeProxy safe = SafeProxyFactory(ADDRESS_SAFE_PROXY_FACTORY).createProxyWithNonce(
 			ADDRESS_SAFE_SINGLETON,
@@ -242,20 +249,20 @@ contract DeploymentService is CreateXScript, StdCheats {
 			nonce
 		);
 
-		assert(address(safe) == safeExpectedAddress);
-		assert(IModuleManager(address(safe)).isModuleEnabled(safeModule));
+		assert(address(safe) == expected);
+		assert(IModuleManager(expected).isModuleEnabled(safeModule));
 
-		console.log('Expected @', address(safeExpectedAddress));
-		console.log('Safe @', address(safe));
+		console.log('UD address @', expected);
 
 		vm.stopBroadcast();
 	}
 
 	function run() public {
-		address legacyAddress = 0xf9A9e6288c7A23B2b07f06f668084A1101835fA6;
-
 		console.log('CreateX', address(CreateX));
-		console.log('Deployer @', vm.addr(deployer));
+		console.log('Deployer @', deployerAddress);
+		console.log('Destination address @', destinationAddress);
+		console.log('Destination chain @', destinationChain);
+		console.log('Destination token @', destinationToken);
 
 		vm.startBroadcast(deployer);
 
@@ -278,7 +285,7 @@ contract DeploymentService is CreateXScript, StdCheats {
 			bytes32 safeModuleProxySalt,
 			bytes memory safeModuleProxyInitCode,
 			address safeModuleExpectedAddress
-		) = _getSafeModuleProxyParameters(legacyAddress);
+		) = _getSafeModuleProxyParameters();
 
 		address safeModule = CreateX.deployCreate2(safeModuleProxySalt, safeModuleProxyInitCode);
 
@@ -288,14 +295,14 @@ contract DeploymentService is CreateXScript, StdCheats {
 		SafeModule(safeModule).setExchangeRate(ADDRESS_USDC_ARBITRUM, 9500);
 
 		assert(safeModule == safeModuleExpectedAddress);
-		assert(SafeModule(safeModule).owner() == vm.addr(deployer));
+		assert(SafeModule(safeModule).owner() == deployerAddress);
 		assert(SafeModule(safeModule).autoSettlement(ADDRESS_USDC_ARBITRUM));
 
 		(
 			uint256 nonce,
 			bytes memory setupData,
 			address safeExpectedAddress
-		) = _getUniversalSafeParameters(legacyAddress);
+		) = _getUniversalSafeParameters();
 
 		SafeProxy safe = SafeProxyFactory(ADDRESS_SAFE_PROXY_FACTORY).createProxyWithNonce(
 			ADDRESS_SAFE_SINGLETON,
