@@ -16,3 +16,6 @@
 [submodule "packages/evm/contracts/lib/safe-smart-account"]
 	path = packages/evm/contracts/lib/safe-smart-account
 	url = https://github.com/safe-global/safe-smart-account
+[submodule "packages/evm/contracts/lib/safe-singleton-factory"]
+	path = packages/evm/contracts/lib/safe-singleton-factory
+	url = https://github.com/safe-global/safe-singleton-factory
