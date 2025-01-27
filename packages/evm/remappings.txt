@@ -1,0 +1,4 @@
+hardhat/=node_modules/hardhat/
+forge-std/=contracts/lib/forge-std/src/
+@openzeppelin/=./node_modules/@openzeppelin/
+@safe-global/=./node_modules/@safe-global/

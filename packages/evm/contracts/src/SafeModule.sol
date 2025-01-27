@@ -2,13 +2,13 @@
 
 pragma solidity ^0.8.28;
 
-import '@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol';
-import '@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol';
-import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
-import 'dln-contracts/interfaces/IDlnSource.sol';
-import 'dln-contracts/libraries/DlnOrderLib.sol';
-import './interfaces/ISafe.sol';
-import './interfaces/IModuleManager.sol';
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "dln-contracts/interfaces/IDlnSource.sol";
+import "dln-contracts/libraries/DlnOrderLib.sol";
+import "./interfaces/ISafe.sol";
+import "./interfaces/IModuleManager.sol";
 
 interface TokenWithDecimals {
     function decimals() external view returns (uint256);
@@ -16,8 +16,8 @@ interface TokenWithDecimals {
 
 contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
     error AutoSettlementDisabled();
-    string public constant NAME = 'Universal Deposits Module';
-    string public constant VERSION = '0.1.0';
+    string public constant NAME = "Universal Deposits Module";
+    string public constant VERSION = "0.1.0";
 
     address internal constant SAFE_MULTISEND = 0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526;
     address internal constant DEBRIDGE_DLN_SOURCE = 0xeF4fB24aD0916217251F553c0596F8Edc630EB66;
@@ -65,8 +65,7 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
             uint256 tokenBalance = IERC20(token).balanceOf(safe);
             uint256 giveAmount = tokenBalance;
             uint256 bps = 10_000 - 8;
-            uint256 takeAmount = ((tokenBalance * rates[token] * bps) /
-                (EX_RATE_DIVISOR * EX_RATE_DIVISOR)) - 6; // see deBridge doc
+            uint256 takeAmount = ((tokenBalance * rates[token] * bps) / (EX_RATE_DIVISOR * EX_RATE_DIVISOR)) - 6; // see deBridge doc
             takeAmount *= (10 ** (18 - tokenDecimals));
 
             bytes memory empty = new bytes(0);
@@ -85,7 +84,7 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
             );
 
             bytes memory approveCalldata = abi.encodeWithSignature(
-                'approve(address,uint256)',
+                "approve(address,uint256)",
                 DEBRIDGE_DLN_SOURCE,
                 giveAmount
             );
@@ -100,13 +99,7 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
                 empty
             );
             bytes memory txs = bytes.concat(
-                abi.encodePacked(
-                    uint8(0),
-                    token,
-                    uint256(0),
-                    approveCalldata.length,
-                    approveCalldata
-                ),
+                abi.encodePacked(uint8(0), token, uint256(0), approveCalldata.length, approveCalldata),
                 abi.encodePacked(
                     uint8(0),
                     DEBRIDGE_DLN_SOURCE,
@@ -117,16 +110,16 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
             );
 
             // Check re-entrancy
-            (bool success, ) = safe.call{value: protocolFee}('');
+            (bool success, ) = safe.call{value: protocolFee}("");
 
             if (!success) {
-                revert('Failed to send ETH to safe');
+                revert("Failed to send ETH to safe");
             }
 
             IModuleManager(safe).execTransactionFromModule(
                 SAFE_MULTISEND, // address to,
                 0, // uint256 value,
-                abi.encodeWithSignature('multiSend(bytes)', txs), // bytes calldata data,
+                abi.encodeWithSignature("multiSend(bytes)", txs), // bytes calldata data,
                 Enum.Operation.DelegateCall // Enum.Operation operation,
             );
         }

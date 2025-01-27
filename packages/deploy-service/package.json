@@ -1,8 +1,9 @@
 {
-  "name": "deploy-service",
+  "name": "@universal-deposits/deploy-service",
+  "private": true,
   "version": "1.0.0",
   "license": "MIT",
   "dependencies": {
-    "ud-sdk": "1.0.0"
+    "@universal-deposits/sdk": "1.0.0"
   }
 }

@@ -1,4 +1,5 @@
 import viem from 'viem'
+import {c} from '@universal-deposits/contracts'
 
 type UniversalDepositsConfig = {
   destinationAddress: string
@@ -12,6 +13,7 @@ export class UniversalDeposits {
     this.config = config
   }
 
+  getSSLogicAddress() {
 
-
+  }
 }

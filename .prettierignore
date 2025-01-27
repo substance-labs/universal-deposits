@@ -1,5 +1,6 @@
 node_modules
 pnpm-lock.yaml
+lib
 cache
 cache_hardhat
 cache_hardhat-zk
@@ -13,5 +14,3 @@ deployments_tenderly
 forge-artifacts
 bin
 out
-dist
-!./src/lib

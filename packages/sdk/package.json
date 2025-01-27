@@ -1,5 +1,6 @@
 {
-  "name": "ud-sdk",
+  "name": "@universal-deposits/sdk",
+  "private": true,
   "version": "1.0.0",
   "description": "Universal Deposits SDK",
   "main": "./dist/index.js",
@@ -21,5 +22,7 @@
     "typescript-eslint": "^8.21.0",
     "viem": "^2.22.15"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@universal-deposits/contracts": "1.0.0"
+  }
 }
