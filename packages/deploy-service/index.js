@@ -1,18 +1,18 @@
 const { UniversalDeposits } = require('@universal-deposits/sdk')
 
 const main = async () => {
-  const destinationAddress = ''
-  const destinationToken = ''
-  const destinationChain = 10020
+  const destinationAddress = '0xf9A9e6288c7A23B2b07f06f668084A1101835fA6'
+  const destinationToken = '0xcB444e90D8198415266c6a2724b7900fb12FC56E'
+  const destinationChain = 100000002
 
-  console.log(UniversalDeposits)
-  const ciao = new UniversalDeposits({
+  const ud = new UniversalDeposits({
     destinationAddress,
     destinationToken,
     destinationChain,
   })
 
-  ciao.print()
+  const a = ud.getSafeModuleLogicAddress()
+  console.log('a', a)
 }
 
 main()

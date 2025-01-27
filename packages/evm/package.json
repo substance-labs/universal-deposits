@@ -3,7 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "license": "MIT",
-  "dependencies": {},
+  "scripts": {
+    "build": "forge compile"
+  },
   "devDependencies": {
     "@types/node": "^22.10.10",
     "ethers": "5.4.0",

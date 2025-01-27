@@ -2,7 +2,7 @@
 [profile.default]
 src = "contracts/src"                                     # Set the source directory.
 test = "contracts/test"                                   # Set the test directory.
-out = "artifacts"                                   # Set the output directory for the artifacts.
+out = "artifacts"                                         # Set the output directory for the artifacts.
 libs = ["contracts/lib"]                                  # Configure an array of library directories.
 cache = true                                              # Enable caching.
 cache_path = "cache"                                      # Set the path to the cache.
@@ -24,3 +24,4 @@ force = true                                              # Perform always a cle
 verbosity = 4                                             # Increase the verbosity level for the tests.
 fuzz = { runs = 10_000, max_test_rejects = 150_000 }      # Increase the number of fuzz runs and maximum number of combined inputs that may be rejected for the tests.
 invariant = { runs = 375, depth = 500 }                   # Increase the number of runs (while preserving the default depth) for each invariant test group.
+
