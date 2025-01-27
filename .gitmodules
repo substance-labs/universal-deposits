@@ -1,3 +1,6 @@
 [submodule "packages/evm/contracts/lib/dln-contracts"]
 	path = packages/evm/contracts/lib/dln-contracts
 	url = https://github.com/debridge-finance/dln-contracts
+[submodule "packages/evm/contracts/lib/forge-std"]
+	path = packages/evm/contracts/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
