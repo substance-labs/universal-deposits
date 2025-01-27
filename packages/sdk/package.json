@@ -1,0 +1,25 @@
+{
+  "name": "ud-sdk",
+  "version": "1.0.0",
+  "description": "Universal Deposits SDK",
+  "main": "./dist/index.js",
+  "license": "MIT",
+  "scripts": {
+    "compile": "tsc",
+    "build": "tsup src",
+    "prettier:check": "npx prettier -c \"**/*.{js,ts,md,sol,json,yml,yaml}\"",
+    "prettier:fix": "npx prettier -w \"**/*.{js,ts,md,sol,json,yml,yaml}\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.19.0",
+    "eslint": "^9.19.0",
+    "eslint-config-prettier": "^10.0.1",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
+    "tsup": "^8.3.6",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.21.0",
+    "viem": "^2.22.15"
+  },
+  "dependencies": {}
+}

@@ -1,0 +1,8 @@
+{
+  "name": "deploy-service",
+  "version": "1.0.0",
+  "license": "MIT",
+  "dependencies": {
+    "ud-sdk": "1.0.0"
+  }
+}
