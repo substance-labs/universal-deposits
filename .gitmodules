@@ -1,0 +1,3 @@
+[submodule "packages/evm/contracts/lib/dln-contracts"]
+	path = packages/evm/contracts/lib/dln-contracts
+	url = https://github.com/debridge-finance/dln-contracts
