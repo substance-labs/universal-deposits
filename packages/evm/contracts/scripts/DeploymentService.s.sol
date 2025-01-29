@@ -187,6 +187,8 @@ contract DeploymentService is CreateXScript, StdCheats {
 
 		saltNonce = uint256(keccak256(abi.encodePacked(safeModule)));
 
+		console.log("saltNonce", saltNonce);
+
 		address[] memory owners = new address[](1);
 		owners[0] = destinationAddress;
 
@@ -194,6 +196,9 @@ contract DeploymentService is CreateXScript, StdCheats {
 		modules[0] = safeModule;
 
 		bytes memory enableModuleData = abi.encodeWithSignature("enableModules(address[])", modules);
+
+		console.log("enableModuleData");
+		console.logBytes(enableModuleData);
 
 		uint256 threshold = 1;
 		address paymentToken = address(0);
@@ -221,7 +226,12 @@ contract DeploymentService is CreateXScript, StdCheats {
 			abi.encodePacked(bytes1(0xff), address(ADDRESS_SAFE_PROXY_FACTORY), salt, keccak256(deploymentData))
 		);
 
+		console.log("hash");
+		console.logBytes32(hash);
+
 		expected = address(uint160(uint256(hash)));
+
+		console.log("expected", expected);
 	}
 
 	function deployUniversalSafe() public {

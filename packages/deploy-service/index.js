@@ -15,8 +15,11 @@ const main = async () => {
   console.log('a', a)
 
   const b = ud.getSafeModuleProxyAddress()
-
   console.log('b', b)
+
+  const c = ud.getUDSafeAddress()
+
+  console.log('c', c)
 }
 
 main()
