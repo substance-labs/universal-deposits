@@ -77,23 +77,9 @@ contract DeploymentService is CreateXScript, StdCheats {
 	{
 		bytes memory saltBytes = bytes.concat(abi.encodePacked(SAFEMODULE_SALT), CREATEX_REDEPLOY_PROTECTION_FLAG);
 
-		console.log("deployer", vm.addr(deployer));
-		console.log("saltBytes");
-		console.logBytes(saltBytes);
 		salt = bytes32(saltBytes);
 
 		initCode = abi.encodePacked(type(SafeModule).creationCode);
-
-		console.log("from", deployerAddress);
-		console.log("salt");
-		// console.logBytes32(salt);
-		console.log("abi.encode(salt)");
-		console.logBytes(abi.encode(salt));
-		console.log("keccak256(abi.encode(salt))");
-		console.logBytes32(keccak256(abi.encode(salt)));
-
-		console.log("keccak256(initCode)");
-		console.logBytes32(keccak256(initCode));
 
 		if (previousLogic == address(0)) {
 			expected = CreateX.computeCreate2Address(
@@ -112,12 +98,14 @@ contract DeploymentService is CreateXScript, StdCheats {
 		returns (bytes32 salt, bytes memory initCode, address expected)
 	{
 		(, , address safeModuleLogic) = _getSafeModuleLogicParameters();
-		bytes memory safeModuleLogicInitializeData = abi.encodeWithSignature(
-			"initialize(address,address,address)",
-			destinationAddress
+		bytes memory safeModuleLogicInitializeData = abi.encodeWithSelector(
+			SafeModule.initialize.selector,
+			destinationAddress,
+			destinationToken,
+			destinationChain
 		);
 
-		salt = bytes32(
+		salt = keccak256(
 			bytes.concat(
 				abi.encodePacked(destinationAddress, destinationToken, destinationChain),
 				CREATEX_REDEPLOY_PROTECTION_FLAG

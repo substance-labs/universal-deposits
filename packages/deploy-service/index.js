@@ -13,6 +13,10 @@ const main = async () => {
 
   const a = ud.getSafeModuleLogicAddress()
   console.log('a', a)
+
+  const b = ud.getSafeModuleProxyAddress()
+
+  console.log('b', b)
 }
 
 main()
