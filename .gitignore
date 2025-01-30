@@ -88,3 +88,7 @@ bin
 out
 dist
 broadcast
+
+# bundles
+out.min.js
+out.min.js.map
