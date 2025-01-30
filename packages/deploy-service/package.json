@@ -5,5 +5,8 @@
   "license": "MIT",
   "dependencies": {
     "@universal-deposits/sdk": "1.0.0"
+  },
+  "devDependencies": {
+    "ramda": "^0.30.1"
   }
 }

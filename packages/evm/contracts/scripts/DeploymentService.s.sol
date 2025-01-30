@@ -24,7 +24,8 @@ import {Core} from "openzeppelin-foundry-upgrades/internal/Core.sol";
 contract DeploymentService is CreateXScript, StdCheats {
 	using stdStorage for StdStorage;
 
-	address immutable ADDRESS_USDC_ARBITRUM = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
+	error DeployError(string);
+
 	address immutable ADDRESS_SAFE_PROXY_FACTORY = 0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67;
 	address immutable ADDRESS_SAFE_SINGLETON = 0x41675C099F32341bf84BFc5382aF534df5C7461a;
 	address immutable SAFE_FALLBACK_HANDLER = 0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99;
@@ -53,6 +54,7 @@ contract DeploymentService is CreateXScript, StdCheats {
 	address destinationAddress = vm.envAddress("DESTINATION_ADDRESS");
 	address destinationToken = vm.envAddress("DESTINATION_TOKEN");
 	uint256 destinationChain = vm.envUint("DESTINATION_CHAIN");
+	address usdcAddress = vm.envAddress("USDC_ADDRESS");
 
 	address previousLogic;
 
@@ -187,8 +189,6 @@ contract DeploymentService is CreateXScript, StdCheats {
 
 		saltNonce = uint256(keccak256(abi.encodePacked(safeModule)));
 
-		console.log("saltNonce", saltNonce);
-
 		address[] memory owners = new address[](1);
 		owners[0] = destinationAddress;
 
@@ -196,9 +196,6 @@ contract DeploymentService is CreateXScript, StdCheats {
 		modules[0] = safeModule;
 
 		bytes memory enableModuleData = abi.encodeWithSignature("enableModules(address[])", modules);
-
-		console.log("enableModuleData");
-		console.logBytes(enableModuleData);
 
 		uint256 threshold = 1;
 		address paymentToken = address(0);
@@ -226,12 +223,7 @@ contract DeploymentService is CreateXScript, StdCheats {
 			abi.encodePacked(bytes1(0xff), address(ADDRESS_SAFE_PROXY_FACTORY), salt, keccak256(deploymentData))
 		);
 
-		console.log("hash");
-		console.logBytes32(hash);
-
 		expected = address(uint160(uint256(hash)));
-
-		console.log("expected", expected);
 	}
 
 	function deployUniversalSafe() public {
@@ -255,6 +247,27 @@ contract DeploymentService is CreateXScript, StdCheats {
 		vm.stopBroadcast();
 	}
 
+	function _slice(bytes memory data, uint256 start, uint256 length) public pure returns (bytes memory) {
+		require(start + length <= data.length, "Out of bounds");
+
+		bytes memory result = new bytes(length);
+
+		assembly {
+			let startPtr := add(add(data, 0x20), start) // Get pointer to start position
+			let resultPtr := add(result, 0x20) // Get pointer to result
+
+			for {
+				let i := 0
+			} lt(i, length) {
+				i := add(i, 0x20)
+			} {
+				mstore(add(resultPtr, i), mload(add(startPtr, i)))
+			}
+		}
+
+		return result;
+	}
+
 	function run() public {
 		console.log("CreateX", address(CreateX));
 		console.log("Deployer @", deployerAddress);
@@ -270,11 +283,14 @@ contract DeploymentService is CreateXScript, StdCheats {
 			address safeModuleLogicExpectedAddress
 		) = _getSafeModuleLogicParameters();
 
-		address safeModuleLogic = CreateX.deployCreate2(safeModuleLogicSalt, safeModuleLogicInitCode);
-
-		console.log("Logic @", safeModuleLogic);
-
-		assert(safeModuleLogic == safeModuleLogicExpectedAddress);
+		address safeModuleLogic;
+		if (safeModuleLogicExpectedAddress.code.length > 0) {
+			console.log("SafeModule logic already deployed @", safeModuleLogicExpectedAddress);
+			safeModuleLogic = safeModuleLogicExpectedAddress;
+		} else {
+			safeModuleLogic = CreateX.deployCreate2(safeModuleLogicSalt, safeModuleLogicInitCode);
+			console.log("Logic @", safeModuleLogic);
+		}
 
 		(
 			bytes32 safeModuleProxySalt,
@@ -282,30 +298,42 @@ contract DeploymentService is CreateXScript, StdCheats {
 			address safeModuleExpectedAddress
 		) = _getSafeModuleProxyParameters();
 
-		address safeModule = CreateX.deployCreate2(safeModuleProxySalt, safeModuleProxyInitCode);
+		address safeModule;
+		if (safeModuleExpectedAddress.code.length > 0) {
+			console.log("SafeModule proxy already deployed @", safeModuleExpectedAddress);
+			safeModule = safeModuleExpectedAddress;
+		} else {
+			safeModule = CreateX.deployCreate2(safeModuleProxySalt, safeModuleProxyInitCode);
+			console.log("Proxy @", safeModule);
+		}
 
-		console.log("Proxy @", safeModule);
-
-		SafeModule(safeModule).toggleAutoSettlement(ADDRESS_USDC_ARBITRUM);
-		SafeModule(safeModule).setExchangeRate(ADDRESS_USDC_ARBITRUM, 9500);
+		SafeModule(safeModule).toggleAutoSettlement(usdcAddress);
+		SafeModule(safeModule).setExchangeRate(usdcAddress, 9200);
 
 		assert(safeModule == safeModuleExpectedAddress);
 		assert(SafeModule(safeModule).owner() == deployerAddress);
-		assert(SafeModule(safeModule).autoSettlement(ADDRESS_USDC_ARBITRUM));
+		assert(SafeModule(safeModule).autoSettlement(usdcAddress));
 
 		(uint256 nonce, bytes memory setupData, address safeExpectedAddress) = _getUniversalSafeParameters();
 
-		SafeProxy safe = SafeProxyFactory(ADDRESS_SAFE_PROXY_FACTORY).createProxyWithNonce(
-			ADDRESS_SAFE_SINGLETON,
-			setupData,
-			nonce
-		);
+		address safe;
+		if (safeExpectedAddress.code.length > 0) {
+			console.log("UD safe already deployere @", safeExpectedAddress);
+			safe = safeExpectedAddress;
+		} else {
+			safe = address(
+				SafeProxyFactory(ADDRESS_SAFE_PROXY_FACTORY).createProxyWithNonce(
+					ADDRESS_SAFE_SINGLETON,
+					setupData,
+					nonce
+				)
+			);
+			console.log("UD deployed @", safe);
+		}
 
-		console.log("Expected universal safe address", safeExpectedAddress);
+		assert(IModuleManager(safe).isModuleEnabled(safeModule));
 
-		assert(address(safe) == safeExpectedAddress);
-		assert(IModuleManager(address(safe)).isModuleEnabled(safeModule));
-
-		console.log("Safe @", address(safe));
+		uint256 protocolFee = IDlnSource(DEBRIDGE_DLN_SOURCE).globalFixedNativeFee();
+		SafeModule(safeModule).settle{value: protocolFee}(safe, usdcAddress);
 	}
 }
