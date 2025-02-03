@@ -1,2 +1,7 @@
 plugins:
-  - "prettier-plugin-solidity"
+  - 'prettier-plugin-solidity'
+
+semi: false
+printWidth: 100
+singleQuote: true
+arrowParens: 'avoid'

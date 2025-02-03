@@ -7,13 +7,15 @@
     "build": "forge compile"
   },
   "devDependencies": {
+    "@universal-deposits/sdk": "1.0.0",
     "@types/node": "^22.10.10",
     "ethers": "5.4.0",
     "prettier": "^3.4.2",
     "prettier-plugin-solidity": "^1.4.2",
     "solhint": "^5.0.5",
     "ts-node": "^10.9.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "ramda": "^0.30.1"
   },
   "files": [
     "artifacts"

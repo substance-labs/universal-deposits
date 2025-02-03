@@ -22,7 +22,5 @@
     "typescript-eslint": "^8.21.0",
     "viem": "^2.22.15"
   },
-  "dependencies": {
-    "@universal-deposits/contracts": "1.0.0"
-  }
+  "dependencies": {}
 }

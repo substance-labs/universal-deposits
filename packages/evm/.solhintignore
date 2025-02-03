@@ -14,3 +14,4 @@ deployments_tenderly
 forge-artifacts
 bin
 out
+scripts
