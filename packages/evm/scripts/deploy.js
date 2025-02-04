@@ -14,6 +14,38 @@ const {
 } = require('viem')
 const { UniversalDeposits } = require('@universal-deposits/sdk')
 const { privateKeyToAccount } = require('viem/accounts')
+const path = require('path')
+
+const monitorFile = (_filePath, _interval, _callback, _callbackArgs = []) => {
+  let lastModifiedTime = null
+
+  let _monitorLoop = () =>
+    fs
+      .stat(_filePath)
+      .then(_stats => {
+        if (_stats.mtimeMs !== lastModifiedTime) {
+          lastModifiedTime = _stats.mtimeMs
+          console.log(`Detected change on ${_filePath}`)
+          return _callback(..._callbackArgs)
+        } else {
+          return Promise.resolve()
+        }
+      })
+      .catch(_err => {
+        console.error(_err)
+      })
+
+  return fs
+    .stat(_filePath)
+    .then(_stats => {
+      lastModifiedTime = _stats.mtimeMs
+      setInterval(_monitorLoop, _interval * 1000)
+      console.log(`Monitoring of file ${_filePath} started...`)
+    })
+    .catch(_err => {
+      console.error(_err)
+    })
+}
 
 const settleAbi = [
   {
@@ -53,7 +85,7 @@ const toString = R.invoker(0, 'toString')
 const readMultilineFile = _path => fs.readFile(_path).then(toString).then(R.split('\n'))
 
 let UD_SAFES = {} // Maps a destination address to its UD safe address
-let TOKENS = {} // Origing tokens to watch out for deposits
+let TOKENS = [] // Origing tokens to watch out for deposits
 
 const debridgeChainIdMapping = {
   10200: 100000002,
@@ -123,12 +155,24 @@ const getTokenAccountUDSafes = R.curry(async (_config, _addresses) => {
 
 const updateGlobals = _config =>
   Promise.all([readMultilineFile(_config.tokensPath), readMultilineFile(_config.addressesPath)])
+    .then(([_tokens, _addresses]) => [
+      Array.from(new Set(_tokens)),
+      Array.from(new Set(_addresses)),
+    ])
     .then(([_tokens, _addresses]) =>
       Promise.all([_tokens, getTokenAccountUDSafes(_config, _addresses)]),
     )
+
     .then(([_tokens, _safes]) => {
+      console.log('Updating globals...')
+      console.log(`  TOKENS: from ${TOKENS.length} elements to ${_tokens.length} elements`)
+      console.log(
+        `  UD_SAFES: from ${R.keys(UD_SAFES).length} elements to ${R.keys(_safes).length} elements`,
+      )
       TOKENS = _tokens
       UD_SAFES = _safes
+
+      console.log('Globals updated!')
     })
 
 const runShellCommand = _args =>
@@ -221,11 +265,12 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
         args: [entry.safe, entry.token],
         value: protocolFee,
         account,
+        gas: 500000,
       })
 
       const hash = await wclient.writeContract(request)
-
-      const receipt = await wclient.waitForTransactionReceipt({ hash })
+      console.log(`  Broadcasted @`, hash)
+      await pclient.waitForTransactionReceipt({ hash, confirmations: 3 })
     }
 
     await console.log('  Done')
@@ -250,6 +295,7 @@ const deploymentLoop = async (_config, _intervalId) => {
 const main = _config =>
   updateGlobals(_config).then(_ => {
     setInterval(deploymentLoop, _config.freq, _config)
+    monitorFile(_config.addressesPath, 3, updateGlobals, [_config])
   })
 
 main({
