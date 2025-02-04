@@ -11,7 +11,7 @@ const main = async () => {
     destinationAddress,
     destinationToken,
     destinationChain,
-    url: process.env['ETH_RPC_URL'],
+    urls: [process.env['ETH_RPC_URL']],
   })
 
   const a = ud.getSafeModuleLogicAddress()
@@ -25,9 +25,9 @@ const main = async () => {
   console.log('c', c)
 
   await ud.watchDeployment({
-    onLogicDeploy: () => console.log('logic deployed!'),
-    onProxyDeploy: () => console.log('Proxy deployed!'),
-    onSafeDeploy: () => console.log('Safe deployed'),
+    onLogicDeploy: (event) => console.log('logic deployed!', event.detail.chainId),
+    onProxyDeploy: (event) => console.log('Proxy deployed!', event.detail.chainId),
+    onSafeDeploy: (event) => console.log('Safe deployed', event.detail.chainId),
   })
 }
 

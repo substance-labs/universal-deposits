@@ -20,6 +20,7 @@ import {
   padHex,
   parseAbiParameter,
   parseAbiParameters,
+  PublicClient,
   toBytes,
   toFunctionSignature,
   toHex,
@@ -44,7 +45,7 @@ type UniversalDepositsConfig = {
   destinationAddress: Address
   destinationToken: Address
   destinationChain: bigint,
-  url?: string,
+  urls?: string[],
   checkIntervalMs?: number
 }
 
@@ -176,12 +177,8 @@ export class UniversalDeposits {
   }
 
   watchDeployment(feedback: DeploymentFeedback) {
-    if (!this.config.url) 
-      throw new Error('Please provide configure this ud with the url field (a valid JSON-RPC node)')
-
-    const publicClient = createPublicClient({
-      transport: http(this.config.url)
-    })
+    if (this.config.urls?.length === 0) 
+      throw new Error('Please provide to monitor the safe address')
 
     const checkIntervalMs = this.config.checkIntervalMs ? this.config.checkIntervalMs : 1000
     const clear = (_intervalId: number) => clearInterval(_intervalId) 
@@ -190,15 +187,20 @@ export class UniversalDeposits {
     
     let intervalIds: NodeJS.Timeout[] = []
     const checkContractDeployment = async (
+      client: PublicClient,
       address: Address, 
       eventTarget: EventTarget, 
       eventName: string,
       intervalIdsIndex: number
     ) => {
-      const bytecode = await publicClient.getCode({ address })
+      const bytecode = await client.getCode({ address })
 
       if (bytecode) {
-        eventTarget.dispatchEvent(new CustomEvent(eventName))
+        eventTarget.dispatchEvent(new CustomEvent(eventName, { 
+          detail: { 
+            chainId: await client.getChainId() 
+          } 
+        }))
         clearInterval(intervalIds[intervalIdsIndex])
       }
     }
@@ -210,17 +212,23 @@ export class UniversalDeposits {
     }
 
     let i = 0
-    for (let eventName in eventsMapping) {
-      eventTarget.addEventListener(eventName, eventsMapping[eventName])
-      intervalIds[i] = setInterval(
-        checkContractDeployment, 
-        checkIntervalMs,
-        this.getSafeModuleLogicAddress(),
-        eventTarget,
-        eventName,
-        i
-      )  
-      i++
+    for (let url of this.config.urls as string[]) {
+      const client = createPublicClient({
+        transport: http(url)
+      })
+      for (let eventName in eventsMapping) {
+        eventTarget.addEventListener(eventName, eventsMapping[eventName])
+        intervalIds[i] = setInterval(
+          checkContractDeployment, 
+          checkIntervalMs,
+          client,
+          this.getSafeModuleLogicAddress(),
+          eventTarget,
+          eventName,
+          i
+        )  
+        i++
+      }
     }
   }
 }
