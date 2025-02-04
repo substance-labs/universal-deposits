@@ -181,6 +181,13 @@ contract DeploymentService is CreateXScript, StdCheats {
 		vm.stopBroadcast();
 	}
 
+	function settle(address _safeModuleAddress, address _safe, address _token) public {
+		vm.startBroadcast(deployer);
+		uint256 protocolFee = IDlnSource(DEBRIDGE_DLN_SOURCE).globalFixedNativeFee();
+		SafeModule(_safeModuleAddress).settle{value: protocolFee}(_safe, _token);
+		vm.stopBroadcast();
+	}
+
 	function upgrade(address newImpl) public {
 		vm.startBroadcast(vm.envUint('OTHER'));
 		(, , address proxy) = _getSafeModuleProxyParameters();
