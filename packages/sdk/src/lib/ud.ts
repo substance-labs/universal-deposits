@@ -2,7 +2,9 @@ import {
   AbiParameter,
   Address,
   ByteArray,
+  checksumAddress,
   concat,
+  createPublicClient,
   encodeAbiParameters,
   encodeFunctionData,
   encodePacked,
@@ -11,6 +13,7 @@ import {
   getContractAddress,
   Hex,
   hexToBigInt,
+  http,
   isBytes,
   keccak256,
   pad,
@@ -40,7 +43,19 @@ const ADDRESS_SAFE_SINGLETON = '0x41675C099F32341bf84BFc5382aF534df5C7461a' as A
 type UniversalDepositsConfig = {
   destinationAddress: Address
   destinationToken: Address
-  destinationChain: bigint
+  destinationChain: bigint,
+  url?: string,
+  checkIntervalMs?: number
+}
+
+type DeploymentFeedback = { 
+  onLogicDeploy: EventListenerOrEventListenerObject, 
+  onProxyDeploy: EventListenerOrEventListenerObject, 
+  onSafeDeploy: EventListenerOrEventListenerObject 
+}
+
+type EventMapping = {
+  [key: string]: EventListenerOrEventListenerObject
 }
 
 export class UniversalDeposits {
@@ -158,5 +173,54 @@ export class UniversalDeposits {
     )
 
     return toHex(toBytes(hash).slice(12))
+  }
+
+  watchDeployment(feedback: DeploymentFeedback) {
+    if (!this.config.url) 
+      throw new Error('Please provide configure this ud with the url field (a valid JSON-RPC node)')
+
+    const publicClient = createPublicClient({
+      transport: http(this.config.url)
+    })
+
+    const checkIntervalMs = this.config.checkIntervalMs ? this.config.checkIntervalMs : 1000
+    const clear = (_intervalId: number) => clearInterval(_intervalId) 
+    const eventTarget = new EventTarget()
+
+    
+    let intervalIds: NodeJS.Timeout[] = []
+    const checkContractDeployment = async (
+      address: Address, 
+      eventTarget: EventTarget, 
+      eventName: string,
+      intervalIdsIndex: number
+    ) => {
+      const bytecode = await publicClient.getCode({ address })
+
+      if (bytecode) {
+        eventTarget.dispatchEvent(new CustomEvent(eventName))
+        clearInterval(intervalIds[intervalIdsIndex])
+      }
+    }
+
+    const eventsMapping: EventMapping = {
+      "onLogicDeploy": feedback.onLogicDeploy,
+      "onProxyDeploy": feedback.onProxyDeploy,
+      "onSafeDeploy": feedback.onSafeDeploy,
+    }
+
+    let i = 0
+    for (let eventName in eventsMapping) {
+      eventTarget.addEventListener(eventName, eventsMapping[eventName])
+      intervalIds[i] = setInterval(
+        checkContractDeployment, 
+        checkIntervalMs,
+        this.getSafeModuleLogicAddress(),
+        eventTarget,
+        eventName,
+        i
+      )  
+      i++
+    }
   }
 }
