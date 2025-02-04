@@ -55,8 +55,13 @@ type DeploymentFeedback = {
   onSafeDeploy: EventListenerOrEventListenerObject 
 }
 
+type EventMappingValue = {
+  callback: EventListenerOrEventListenerObject
+  address: Address
+}
+
 type EventMapping = {
-  [key: string]: EventListenerOrEventListenerObject
+  [key: string]: EventMappingValue
 }
 
 type DebridgeChainIdMapping = {
@@ -209,8 +214,7 @@ export class UniversalDeposits {
       eventName: string,
       intervalIdsIndex: number
     ) => {
-      const bytecode = await client.getCode({ address })
-
+      const bytecode = await client.getBytecode({ address })
       if (bytecode) {
         eventTarget.dispatchEvent(new CustomEvent(eventName, { 
           detail: { 
@@ -222,9 +226,18 @@ export class UniversalDeposits {
     }
 
     const eventsMapping: EventMapping = {
-      "onLogicDeploy": feedback.onLogicDeploy,
-      "onProxyDeploy": feedback.onProxyDeploy,
-      "onSafeDeploy": feedback.onSafeDeploy,
+      "onLogicDeploy": {
+        callback: feedback.onLogicDeploy,
+        address: this.getSafeModuleLogicAddress()
+      },
+      "onProxyDeploy": {
+        callback: feedback.onProxyDeploy,
+        address: this.getSafeModuleProxyAddress()
+      },
+      "onSafeDeploy": {
+        callback: feedback.onSafeDeploy,
+        address: this.getUDSafeAddress()
+      },
     }
 
     let i = 0
@@ -233,12 +246,12 @@ export class UniversalDeposits {
         transport: http(url)
       })
       for (let eventName in eventsMapping) {
-        eventTarget.addEventListener(eventName, eventsMapping[eventName])
+        eventTarget.addEventListener(eventName, eventsMapping[eventName].callback)
         intervalIds[i] = setInterval(
           checkContractDeployment, 
           checkIntervalMs,
           client,
-          this.getSafeModuleLogicAddress(),
+          eventsMapping[eventName].address,
           eventTarget,
           eventName,
           i
