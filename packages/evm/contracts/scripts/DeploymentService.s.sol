@@ -49,13 +49,13 @@ contract DeploymentService is CreateXScript, StdCheats {
 
 	bytes1 immutable CREATEX_REDEPLOY_PROTECTION_FLAG = bytes1(0x00);
 
-	uint256 deployer = vm.envUint('PRIVATE_KEY');
-	address deployerAddress = vm.addr(deployer);
-	address destinationAddress = vm.envAddress('DESTINATION_ADDRESS');
-	address destinationToken = vm.envAddress('DESTINATION_TOKEN');
-	uint256 destinationChain = vm.envUint('DESTINATION_CHAIN');
-	address originToken = vm.envAddress('USDC_ADDRESS');
-	uint256 originTokenExchangeRate = vm.envUint('ER_USD_EUR');
+	// uint256 deployer = vm.envUint('PRIVATE_KEY');
+	// address deployerAddress = vm.addr(deployer);
+	// address destinationAddress = vm.envAddress('DESTINATION_ADDRESS');
+	// address destinationToken = vm.envAddress('DESTINATION_TOKEN');
+	// uint256 destinationChain = vm.envUint('DESTINATION_CHAIN');
+	// address originToken = vm.envAddress('USDC_ADDRESS');
+	// uint256 originTokenExchangeRate = vm.envUint('ER_USD_EUR');
 	address previousLogic;
 
 	function getCreate2Address(
@@ -102,22 +102,22 @@ contract DeploymentService is CreateXScript, StdCheats {
 		}
 	}
 
-	function _getSafeModuleProxyParameters()
-		internal
-		view
-		returns (bytes32 salt, bytes memory initCode, address expected)
-	{
+	function _getSafeModuleProxyParameters(
+		address _destinationAddress,
+		address _destinationToken,
+		uint256 _destinationChain
+	) internal view returns (bytes32 salt, bytes memory initCode, address expected) {
 		(, , address safeModuleLogic) = _getSafeModuleLogicParameters();
 		bytes memory safeModuleLogicInitializeData = abi.encodeWithSelector(
 			SafeModule.initialize.selector,
-			destinationAddress,
-			destinationToken,
-			destinationChain
+			_destinationAddress,
+			_destinationToken,
+			_destinationChain
 		);
 
 		salt = keccak256(
 			bytes.concat(
-				abi.encodePacked(destinationAddress, destinationToken, destinationChain),
+				abi.encodePacked(_destinationAddress, _destinationToken, _destinationChain),
 				CREATEX_REDEPLOY_PROTECTION_FLAG
 			)
 		);
@@ -130,18 +130,37 @@ contract DeploymentService is CreateXScript, StdCheats {
 		expected = CreateX.computeCreate2Address(keccak256(abi.encode(salt)), keccak256(initCode));
 	}
 
-	function toggleAutoSettlement(address _token) public {
-		vm.startBroadcast(deployer);
-		(, , address proxy) = _getSafeModuleProxyParameters();
+	function toggleAutoSettlement(
+		address _destinationAddress,
+		address _destinationToken,
+		uint256 _destinationChain,
+		address _token
+	) public {
+		vm.startBroadcast();
+		(, , address proxy) = _getSafeModuleProxyParameters(
+			_destinationAddress,
+			_destinationToken,
+			_destinationChain
+		);
 
 		SafeModule(proxy).toggleAutoSettlement(_token);
 
 		vm.stopBroadcast();
 	}
 
-	function setExchangeRate(address _token, uint256 _rate) public {
-		vm.startBroadcast(deployer);
-		(, , address proxy) = _getSafeModuleProxyParameters();
+	function setExchangeRate(
+		address _destinationAddress,
+		address _destinationToken,
+		uint256 _destinationChain,
+		address _token,
+		uint256 _rate
+	) public {
+		vm.startBroadcast();
+		(, , address proxy) = _getSafeModuleProxyParameters(
+			_destinationAddress,
+			_destinationToken,
+			_destinationChain
+		);
 
 		SafeModule(proxy).setExchangeRate(_token, _rate);
 
@@ -149,7 +168,7 @@ contract DeploymentService is CreateXScript, StdCheats {
 	}
 
 	function deploySafeModuleLogic() public {
-		vm.startBroadcast(deployer);
+		vm.startBroadcast();
 		(bytes32 salt, bytes memory initCode, address expected) = _getSafeModuleLogicParameters();
 
 		address safeModuleLogic = CreateX.deployCreate2(salt, initCode);
@@ -160,9 +179,17 @@ contract DeploymentService is CreateXScript, StdCheats {
 		vm.stopBroadcast();
 	}
 
-	function deploySafeModuleProxy() public {
-		vm.startBroadcast(deployer);
-		(bytes32 salt, bytes memory initCode, address expected) = _getSafeModuleProxyParameters();
+	function deploySafeModuleProxy(
+		address _destinationAddress,
+		address _destinationToken,
+		uint256 _destinationChain
+	) public {
+		vm.startBroadcast();
+		(bytes32 salt, bytes memory initCode, address expected) = _getSafeModuleProxyParameters(
+			_destinationAddress,
+			_destinationToken,
+			_destinationChain
+		);
 
 		address safeModule = CreateX.deployCreate2(salt, initCode);
 
@@ -172,40 +199,66 @@ contract DeploymentService is CreateXScript, StdCheats {
 		vm.stopBroadcast();
 	}
 
-	function settle(address _token) public {
-		vm.startBroadcast(deployer);
-		(, , address safeModule) = _getSafeModuleProxyParameters();
-		(, , address safe) = _getUniversalSafeParameters();
+	function settle(
+		address _destinationAddress,
+		address _destinationToken,
+		uint256 _destinationChain,
+		address _token
+	) public {
+		vm.startBroadcast();
+		(, , address safeModule) = _getSafeModuleProxyParameters(
+			_destinationAddress,
+			_destinationToken,
+			_destinationChain
+		);
+		(, , address safe) = _getUniversalSafeParameters(
+			_destinationAddress,
+			_destinationToken,
+			_destinationChain
+		);
 		uint256 protocolFee = IDlnSource(DEBRIDGE_DLN_SOURCE).globalFixedNativeFee();
 		SafeModule(safeModule).settle{value: protocolFee}(safe, _token);
 		vm.stopBroadcast();
 	}
 
 	function settle(address _safeModuleAddress, address _safe, address _token) public {
-		vm.startBroadcast(deployer);
+		vm.startBroadcast();
 		uint256 protocolFee = IDlnSource(DEBRIDGE_DLN_SOURCE).globalFixedNativeFee();
 		SafeModule(_safeModuleAddress).settle{value: protocolFee}(_safe, _token);
 		vm.stopBroadcast();
 	}
 
-	function upgrade(address newImpl) public {
+	function upgrade(
+		address _destinationAddress,
+		address _destinationToken,
+		uint256 _destinationChain,
+		address newImpl
+	) public {
 		vm.startBroadcast(vm.envUint('OTHER'));
-		(, , address proxy) = _getSafeModuleProxyParameters();
+		(, , address proxy) = _getSafeModuleProxyParameters(
+			_destinationAddress,
+			_destinationToken,
+			_destinationChain
+		);
 		Core.upgradeProxyTo(proxy, newImpl, '');
 		vm.stopBroadcast();
 	}
 
-	function _getUniversalSafeParameters()
-		internal
-		view
-		returns (uint256 saltNonce, bytes memory initializer, address expected)
-	{
-		(, , address safeModule) = _getSafeModuleProxyParameters();
+	function _getUniversalSafeParameters(
+		address _destinationAddress,
+		address _destinationToken,
+		uint256 _destinationChain
+	) internal view returns (uint256 saltNonce, bytes memory initializer, address expected) {
+		(, , address safeModule) = _getSafeModuleProxyParameters(
+			_destinationAddress,
+			_destinationToken,
+			_destinationChain
+		);
 
 		saltNonce = uint256(keccak256(abi.encodePacked(safeModule)));
 
 		address[] memory owners = new address[](1);
-		owners[0] = destinationAddress;
+		owners[0] = _destinationAddress;
 
 		address[] memory modules = new address[](1);
 		modules[0] = safeModule;
@@ -249,12 +302,24 @@ contract DeploymentService is CreateXScript, StdCheats {
 		expected = address(uint160(uint256(hash)));
 	}
 
-	function deployUniversalSafe() public {
-		vm.startBroadcast(deployer);
+	function deployUniversalSafe(
+		address _destinationAddress,
+		address _destinationToken,
+		uint256 _destinationChain
+	) public {
+		vm.startBroadcast();
 
-		(, , address safeModule) = _getSafeModuleProxyParameters();
+		(, , address safeModule) = _getSafeModuleProxyParameters(
+			_destinationAddress,
+			_destinationToken,
+			_destinationChain
+		);
 
-		(uint256 nonce, bytes memory setupData, address expected) = _getUniversalSafeParameters();
+		(uint256 nonce, bytes memory setupData, address expected) = _getUniversalSafeParameters(
+			_destinationAddress,
+			_destinationToken,
+			_destinationChain
+		);
 
 		SafeProxy safe = SafeProxyFactory(ADDRESS_SAFE_PROXY_FACTORY).createProxyWithNonce(
 			ADDRESS_SAFE_SINGLETON,
@@ -295,6 +360,46 @@ contract DeploymentService is CreateXScript, StdCheats {
 		return result;
 	}
 
+	function _maybeDeployLogic() internal {
+		(
+			bytes32 safeModuleLogicSalt,
+			bytes memory safeModuleLogicInitCode,
+			address safeModuleLogic
+		) = _getSafeModuleLogicParameters();
+
+		if (safeModuleLogic.code.length > 0) {
+			console.log('SafeModule logic already deployed @', safeModuleLogic);
+		} else {
+			safeModuleLogic = CreateX.deployCreate2(safeModuleLogicSalt, safeModuleLogicInitCode);
+			console.log('Logic @', safeModuleLogic);
+		}
+	}
+
+	function _maybeDeployProxy(
+		address _destinationAddress,
+		address _destinationToken,
+		uint256 _destinationChain
+	) internal returns (address) {
+		(
+			bytes32 safeModuleProxySalt,
+			bytes memory safeModuleProxyInitCode,
+			address safeModule
+		) = _getSafeModuleProxyParameters(
+				_destinationAddress,
+				_destinationToken,
+				_destinationChain
+			);
+
+		if (safeModule.code.length > 0) {
+			console.log('SafeModule proxy already deployed @', safeModule);
+		} else {
+			safeModule = CreateX.deployCreate2(safeModuleProxySalt, safeModuleProxyInitCode);
+			console.log('Proxy @', safeModule);
+		}
+
+		return safeModule;
+	}
+
 	function run(
 		uint256 _originTokenExchangeRate,
 		address _originTokenAddress,
@@ -302,68 +407,38 @@ contract DeploymentService is CreateXScript, StdCheats {
 		address _destinationToken,
 		uint256 _destinationChain
 	) public {
-		originToken = _originTokenAddress;
-		originTokenExchangeRate = _originTokenExchangeRate;
-		destinationAddress = _destinationAddress;
-		destinationToken = _destinationToken;
-		destinationChain = _destinationChain;
-
+		address deployerAddress = msg.sender;
 		console.log('CreateX', address(CreateX));
 		console.log('Deployer @', deployerAddress);
-		console.log('Destination address @', destinationAddress);
-		console.log('Destination chain @', destinationChain);
-		console.log('Destination token @', destinationToken);
+		console.log('Destination address @', _destinationAddress);
+		console.log('Destination chain @', _destinationChain);
+		console.log('Destination token @', _destinationToken);
 
-		vm.startBroadcast(deployer);
+		vm.startBroadcast();
 
-		(
-			bytes32 safeModuleLogicSalt,
-			bytes memory safeModuleLogicInitCode,
-			address safeModuleLogicExpectedAddress
-		) = _getSafeModuleLogicParameters();
+		_maybeDeployLogic();
 
-		address safeModuleLogic;
-		if (safeModuleLogicExpectedAddress.code.length > 0) {
-			console.log('SafeModule logic already deployed @', safeModuleLogicExpectedAddress);
-			safeModuleLogic = safeModuleLogicExpectedAddress;
-		} else {
-			safeModuleLogic = CreateX.deployCreate2(safeModuleLogicSalt, safeModuleLogicInitCode);
-			console.log('Logic @', safeModuleLogic);
+		address safeModule = _maybeDeployProxy(
+			_destinationAddress,
+			_destinationToken,
+			_destinationChain
+		);
+
+		if (!SafeModule(safeModule).autoSettlement(_originTokenAddress)) {
+			SafeModule(safeModule).toggleAutoSettlement(_originTokenAddress);
+			SafeModule(safeModule).setExchangeRate(_originTokenAddress, _originTokenExchangeRate);
 		}
 
-		(
-			bytes32 safeModuleProxySalt,
-			bytes memory safeModuleProxyInitCode,
-			address safeModuleExpectedAddress
-		) = _getSafeModuleProxyParameters();
-
-		address safeModule;
-		if (safeModuleExpectedAddress.code.length > 0) {
-			console.log('SafeModule proxy already deployed @', safeModuleExpectedAddress);
-			safeModule = safeModuleExpectedAddress;
-		} else {
-			safeModule = CreateX.deployCreate2(safeModuleProxySalt, safeModuleProxyInitCode);
-			console.log('Proxy @', safeModule);
-		}
-
-		if (!SafeModule(safeModule).autoSettlement(originToken)) {
-			SafeModule(safeModule).toggleAutoSettlement(originToken);
-			SafeModule(safeModule).setExchangeRate(originToken, originTokenExchangeRate);
-		}
-
-		assert(safeModule == safeModuleExpectedAddress);
 		assert(SafeModule(safeModule).owner() == deployerAddress);
 
-		(
-			uint256 nonce,
-			bytes memory setupData,
-			address safeExpectedAddress
-		) = _getUniversalSafeParameters();
+		(uint256 nonce, bytes memory setupData, address safe) = _getUniversalSafeParameters(
+			_destinationAddress,
+			_destinationToken,
+			_destinationChain
+		);
 
-		address safe;
-		if (safeExpectedAddress.code.length > 0) {
-			console.log('UD safe already deployer @', safeExpectedAddress);
-			safe = safeExpectedAddress;
+		if (safe.code.length > 0) {
+			console.log('UD safe already deployer @', safe);
 		} else {
 			safe = address(
 				SafeProxyFactory(ADDRESS_SAFE_PROXY_FACTORY).createProxyWithNonce(
@@ -377,11 +452,10 @@ contract DeploymentService is CreateXScript, StdCheats {
 
 		assert(IModuleManager(safe).isModuleEnabled(safeModule));
 
-		uint256 balance = IERC20(originToken).balanceOf(safe);
-
-		if (balance > 0) {
-			uint256 protocolFee = IDlnSource(DEBRIDGE_DLN_SOURCE).globalFixedNativeFee();
-			SafeModule(safeModule).settle{value: protocolFee}(safe, originToken);
-		}
+		// if (IERC20(_originTokenAddress).balanceOf(safe) > 0) {
+		// 	SafeModule(safeModule).settle{
+		// 		value: IDlnSource(DEBRIDGE_DLN_SOURCE).globalFixedNativeFee()
+		// 	}(safe, _originTokenAddress);
+		// }
 	}
 }
