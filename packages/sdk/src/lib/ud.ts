@@ -44,7 +44,7 @@ const ADDRESS_SAFE_SINGLETON = '0x41675C099F32341bf84BFc5382aF534df5C7461a' as A
 type UniversalDepositsConfig = {
   destinationAddress: Address
   destinationToken: Address
-  destinationChain: bigint,
+  destinationChain: string,
   urls?: string[],
   checkIntervalMs?: number
 }
@@ -59,10 +59,26 @@ type EventMapping = {
   [key: string]: EventListenerOrEventListenerObject
 }
 
+type DebridgeChainIdMapping = {
+  [key: string]: string 
+}
+
 export class UniversalDeposits {
+  static readonly DEBRIDGE_CHAINID_MAPPING: DebridgeChainIdMapping = {
+    "100": "100000002", // gnosis
+    "8453": "8453", // base
+    "1": "1", // mainnet
+    "137": "137", // polygon
+    "42161": "42161", // arbitrum 
+  }
   config: UniversalDepositsConfig
   constructor(config: UniversalDepositsConfig) {
+    const { destinationChain } = config
     this.config = config
+    this.config.destinationChain = UniversalDeposits.DEBRIDGE_CHAINID_MAPPING[destinationChain.toString()]
+    if (!this.config.destinationChain) {
+      throw new Error('Unsupported chain id')
+    }
   }
 
   _abiEncode(_abiParameters: string, _params: unknown[]): Hex {
@@ -102,7 +118,7 @@ export class UniversalDeposits {
           [
             this.config.destinationAddress,
             this.config.destinationToken,
-            this.config.destinationChain,
+            BigInt(this.config.destinationChain),
           ],
         ),
         CREATEX_REDEPLOY_PROTECTION_FLAG,

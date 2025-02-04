@@ -5,7 +5,7 @@ const fs = require('fs')
 const main = async () => {
   const destinationAddress = '0xf9A9e6288c7A23B2b07f06f668084A1101835fA6'
   const destinationToken = '0xcB444e90D8198415266c6a2724b7900fb12FC56E'
-  const destinationChain = 100000002
+  const destinationChain = '100'
 
   const ud = new UniversalDeposits({
     destinationAddress,
