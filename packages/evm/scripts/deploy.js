@@ -82,7 +82,8 @@ const getBalanceAbiItem = {
 
 const toString = R.invoker(0, 'toString')
 
-const readMultilineFile = _path => fs.readFile(_path).then(toString).then(R.split('\n'))
+const readMultilineFile = _path =>
+  fs.readFile(_path).then(toString).then(R.trim).then(R.split('\n'))
 
 let UD_SAFES = {} // Maps a destination address to its UD safe address
 let TOKENS = [] // Origing tokens to watch out for deposits
