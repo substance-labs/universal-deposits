@@ -10,3 +10,5 @@ docs/
 
 # Dotenv file
 .env
+addresses.txt
+tokens.txt
