@@ -9,6 +9,6 @@ out/
 docs/
 
 # Dotenv file
-.env
+*.env
 addresses.txt
 tokens.txt
