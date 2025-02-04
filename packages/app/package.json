@@ -1,0 +1,12 @@
+{
+  "name": "@universal-deposits/app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "private": true,
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "express": "^4.21.2"
+  }
+}
