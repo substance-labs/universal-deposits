@@ -1,17 +1,21 @@
+require('dotenv').config()
 const { UniversalDeposits } = require('@universal-deposits/sdk')
 const { curry, memoizeWith, map } = require('ramda')
 const fs = require('fs')
 
 const main = async () => {
-  const destinationAddress = '0xf9A9e6288c7A23B2b07f06f668084A1101835fA6'
-  const destinationToken = '0xcB444e90D8198415266c6a2724b7900fb12FC56E'
-  const destinationChain = '100'
+  const destinationAddress =
+    process.env['DESTINATION_ADDRESS'] || '0xf9A9e6288c7A23B2b07f06f668084A1101835fA6'
+  const destinationToken =
+    process.env['DESTINATION_TOKEN'] || '0xcB444e90D8198415266c6a2724b7900fb12FC56E'
+  const destinationChain = process.env['DESTINATION_CHAIN'] || '100'
 
+  let urls = process.env['URLS'].trim().split(',')
   const ud = new UniversalDeposits({
     destinationAddress,
     destinationToken,
     destinationChain,
-    urls: [process.env['ETH_RPC_URL']],
+    urls,
   })
 
   const a = ud.getSafeModuleLogicAddress()

@@ -12,3 +12,4 @@ docs/
 *.env
 addresses.txt
 tokens.txt
+**/*.tokens.txt

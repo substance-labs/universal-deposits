@@ -1,3 +1,4 @@
+require('dotenv').config({ path: process.env.ENV_PATH || '.env' })
 const fs = require('fs/promises')
 const R = require('ramda')
 const util = require('node:util')
@@ -71,7 +72,7 @@ const dlnSourceAbi = [
 ]
 
 // Usage
-// deploy.js <addressesPath> <originTokensPath> <originChainId> <destinationChainId> <destinationToken> <destinationChain> <url>
+// deploy.js <addressesPath> <originTokensPath> <originChainId> <destinationChain> <destinationToken> <destinationChain> <url>
 const getBalanceAbiItem = {
   name: 'getBalance',
   type: 'function',
@@ -89,7 +90,7 @@ let UD_SAFES = {} // Maps a destination address to its UD safe address
 let TOKENS = [] // Origing tokens to watch out for deposits
 
 const debridgeChainIdMapping = {
-  10200: 100000002,
+  100: 100000002,
   // TODO: add other debridge chain ids here
 }
 
@@ -135,7 +136,7 @@ const getTokenAccountBalances = async _config => {
 }
 
 const getTokenAccountUDSafes = R.curry(async (_config, _addresses) => {
-  const destinationChain = debridgeChainIdMapping[_config.destinationChainId]
+  const destinationChain = _config.destinationChain
   const destinationToken = _config.destinationToken
   return Promise.resolve(
     _addresses.reduce(
@@ -173,6 +174,8 @@ const updateGlobals = _config =>
       TOKENS = _tokens
       UD_SAFES = _safes
 
+      R.keys(UD_SAFES).map(_key => console.log(`    ${_key}: ${UD_SAFES[_key]}`))
+
       console.log('Globals updated!')
     })
 
@@ -187,7 +190,7 @@ const deployContractWithForge = (
   _config,
   _destinationAddress,
   _destinationToken,
-  _destinationChainId,
+  _destinationChain,
   _originToken,
   _exchangeRate,
 ) =>
@@ -196,6 +199,13 @@ const deployContractWithForge = (
     [
       'script',
       './contracts/scripts/DeploymentService.s.sol',
+      '--account',
+      'deployer', // FIXME: this will break on another machine
+      '--sender',
+      '0xCEf67989ae740cC9c92fa7385F003F84EAAFd915',
+      '--password',
+      '',
+      _config.broadcast ? '--broadcast' : '',
       '--rpc-url',
       _config.url,
       '--sig',
@@ -204,8 +214,7 @@ const deployContractWithForge = (
       _originToken,
       _destinationAddress,
       _destinationToken,
-      _destinationChainId,
-      _config.broadcast ? '--broadcast' : '',
+      UniversalDeposits.DEBRIDGE_CHAINID_MAPPING[_destinationChain],
     ],
   ]).then(_ => new Promise(resolve => setTimeout(resolve, 1000))) // FIXME: this is to wait for the deployment to finish
 
@@ -216,8 +225,8 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
     const entry = _tokensAccountBalances[i]
     const destinationAddress = reverseUDSafeMapping[entry.safe]
     const destinationToken = _config.destinationToken
-    const destinationChain = debridgeChainIdMapping[_config.destinationChainId].toString()
-    const exchangeRate = 9200 // TODO: cofigurable
+    const destinationChain = _config.destinationChain
+    const exchangeRate = _config.exchangeRate
     console.log(`  ${destinationAddress} => ${entry.safe} (${entry.balance} ${entry.token})`)
     const account = privateKeyToAccount(_config.privateKey)
 
@@ -240,6 +249,7 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
         _config,
         destinationAddress,
         destinationToken,
+        destinationChain,
         entry.token,
         exchangeRate,
       )
@@ -300,13 +310,14 @@ const main = _config =>
   })
 
 main({
-  addressesPath: process.argv[2],
-  tokensPath: process.argv[3],
-  originChainId: process.argv[4],
-  destinationChainId: process.argv[5],
-  destinationToken: process.argv[6],
-  url: process.argv[7],
-  broadcast: true,
+  addressesPath: process.env['PATH_ADDRESSES'],
+  tokensPath: process.env['PATH_TOKENS'],
+  originChainId: process.env['ORIGIN_CHAIN'],
+  destinationChain: process.env['DESTINATION_CHAIN'],
+  destinationToken: process.env['DESTINATION_TOKEN'],
+  url: process.env['URL'],
+  exchangeRate: process.env['EX_RATE'] || 9200,
+  broadcast: process.env['BROADCAST'] === 'true' || false,
   freq: process.env['CHECK_FREQUENCY'] || 5000,
   privateKey: process.env['PRIVATE_KEY'] || null,
 })
