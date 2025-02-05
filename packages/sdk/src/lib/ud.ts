@@ -8,6 +8,7 @@ import {
   encodeAbiParameters,
   encodeFunctionData,
   encodePacked,
+  erc20Abi,
   getAddress,
   getContract,
   getContractAddress,
@@ -25,6 +26,7 @@ import {
   toFunctionSignature,
   toHex,
   zeroAddress,
+  parseAbiItem
 } from 'viem'
 import SafeModuleJson from './abis/SafeModule.json'
 import ERC1967Proxy from './abis/ERC1967Proxy.json'
@@ -64,18 +66,24 @@ type EventMapping = {
   [key: string]: EventMappingValue
 }
 
-type DebridgeChainIdMapping = {
+type ChainIdToString = {
   [key: string]: string 
 }
 
 export class UniversalDeposits {
-  static readonly DEBRIDGE_CHAINID_MAPPING: DebridgeChainIdMapping = {
+  static readonly DEBRIDGE_CHAINID_MAPPING: ChainIdToString = {
     "100": "100000002", // gnosis
     "8453": "8453", // base
     "1": "1", // mainnet
     "137": "137", // polygon
     "42161": "42161", // arbitrum 
   }
+  static readonly USDC_MAPPING: ChainIdToString = {
+    "8453": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // base
+    "137": "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359", // polygon
+    "42161": "0xaf88d065e77c8cc2239327c5edb3a432268e5831", // arbitrum 
+  }
+
   config: UniversalDepositsConfig
   constructor(config: UniversalDepositsConfig) {
     const { destinationChain } = config
@@ -197,6 +205,58 @@ export class UniversalDeposits {
     return toHex(toBytes(hash).slice(12))
   }
 
+  async watchTokenTransfer({ onBalanceChange }: {onBalanceChange: EventListenerOrEventListenerObject}) {
+    const address = this.getUDSafeAddress()
+    const transferEventAbi = parseAbiItem(
+      'event Transfer(address indexed from, address indexed to, uint256 value)'
+    )
+    for (let url of this.config.urls as string[]) {
+      const client = createPublicClient({ transport: http(url) })
+      const chainId = await client.getChainId()
+      
+      const eventTarget = new EventTarget()
+      eventTarget.addEventListener("onBalanceChange", onBalanceChange)
+      const erc20Address = UniversalDeposits.USDC_MAPPING[chainId] as `0x${string}`
+      const unwatch = client.watchEvent({
+        address: erc20Address, // ERC-20 token address
+        event: transferEventAbi,
+        args: {
+          to: [this.getUDSafeAddress()]
+        },
+        onLogs: () => {
+          const event = new CustomEvent("onBalanceChange", { detail: { chainId } })
+          eventTarget.dispatchEvent(event)
+        }
+      })
+    }
+  }
+
+  async watchSettle({ onSettleCalled }: {onSettleCalled: EventListenerOrEventListenerObject}) {
+    const address = this.getUDSafeAddress()
+    const transferEventAbi = parseAbiItem(
+      'event Transfer(address indexed from, address indexed to, uint256 value)'
+    )
+    for (let url of this.config.urls as string[]) {
+      const client = createPublicClient({ transport: http(url) })
+      const chainId = await client.getChainId()
+      
+      const eventTarget = new EventTarget()
+      eventTarget.addEventListener("onSettleCalled", onSettleCalled)
+      const erc20Address = UniversalDeposits.USDC_MAPPING[chainId] as `0x${string}`
+      const unwatch = client.watchEvent({
+        address: erc20Address, // ERC-20 token address
+        event: transferEventAbi,
+        args: {
+          from: [this.getUDSafeAddress()]
+        },
+        onLogs: () => {
+          const event = new CustomEvent("onSettleCalled", { detail: { chainId } })
+          eventTarget.dispatchEvent(event)
+        }
+      })
+    }
+  }
+
   watchDeployment(feedback: DeploymentFeedback) {
     if (this.config.urls?.length === 0) 
       throw new Error('Please provide to monitor the safe address')
@@ -206,7 +266,9 @@ export class UniversalDeposits {
     const eventTarget = new EventTarget()
 
     
+    let checkOnGoing: { [key:string]: boolean } = {}
     let intervalIds: NodeJS.Timeout[] = []
+
     const checkContractDeployment = async (
       client: PublicClient,
       address: Address, 
@@ -214,14 +276,17 @@ export class UniversalDeposits {
       eventName: string,
       intervalIdsIndex: number
     ) => {
+      const chainId = await client.getChainId()
+
+      if (checkOnGoing[chainId] === true) return
+      checkOnGoing[chainId] = true
       const bytecode = await client.getBytecode({ address })
       if (bytecode) {
         eventTarget.dispatchEvent(new CustomEvent(eventName, { 
-          detail: { 
-            chainId: await client.getChainId() 
-          } 
+          detail: { chainId } 
         }))
         clearInterval(intervalIds[intervalIdsIndex])
+        checkOnGoing[chainId] = false
       }
     }
 
@@ -247,7 +312,7 @@ export class UniversalDeposits {
       })
       for (let eventName in eventsMapping) {
         eventTarget.addEventListener(eventName, eventsMapping[eventName].callback)
-        intervalIds[i] = setInterval(
+        const id = setInterval(
           checkContractDeployment, 
           checkIntervalMs,
           client,
@@ -255,7 +320,8 @@ export class UniversalDeposits {
           eventTarget,
           eventName,
           i
-        )  
+        )
+        intervalIds.push(id)  
         i++
       }
     }
