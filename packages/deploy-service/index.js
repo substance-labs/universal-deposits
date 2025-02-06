@@ -9,7 +9,7 @@ const main = async () => {
   const destinationToken =
     process.env['DESTINATION_TOKEN'] || '0xcB444e90D8198415266c6a2724b7900fb12FC56E'
   const destinationChain = process.env['DESTINATION_CHAIN'] || '100'
-
+  const destinationUrl = process.env['DESTINATION_URL']
   let urls = process.env['URLS'].trim().split(',')
   const ud = new UniversalDeposits({
     destinationAddress,
@@ -31,7 +31,18 @@ const main = async () => {
   await ud.watchDeployment({
     onLogicDeploy: (event) => console.log('logic deployed!', event.detail.chainId),
     onProxyDeploy: (event) => console.log('Proxy deployed!', event.detail.chainId),
-    onSafeDeploy: (event) => console.log('Safe deployed', event.detail.chainId),
+    onSafeDeploy: (event) => console.log('Safe deployed!', event.detail.chainId),
+  })
+  await ud.watchTokenTransfer({
+    onBalanceChange: (event) => console.log('USDC received!', event.detail.chainId),
+  })
+
+  await ud.watchSettle({
+    onSettleCalled: (event) => console.log('Settle called!', event.detail.chainId),
+  })
+
+  await ud.watchAssetReceived({
+    onAssetReceived: (event) => console.log(`Adsset receivedzlxll`),
   })
 }
 

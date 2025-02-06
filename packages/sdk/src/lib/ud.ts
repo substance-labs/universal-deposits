@@ -49,6 +49,7 @@ type UniversalDepositsConfig = {
   destinationChain: string,
   urls?: string[],
   checkIntervalMs?: number
+  destinationUrl?: string[]
 }
 
 type DeploymentFeedback = { 
@@ -83,6 +84,7 @@ export class UniversalDeposits {
     "137": "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359", // polygon
     "42161": "0xaf88d065e77c8cc2239327c5edb3a432268e5831", // arbitrum 
   }
+
 
   config: UniversalDepositsConfig
   constructor(config: UniversalDepositsConfig) {
@@ -231,6 +233,45 @@ export class UniversalDeposits {
     }
   }
 
+  async watchAssetReceived({ onAssetReceived }: {onAssetReceived: EventListenerOrEventListenerObject}) {
+    const address = this.config.destinationAddress
+    const transferEventAbi = parseAbiItem(
+      'event Transfer(address indexed from, address indexed to, uint256 value)'
+    )
+
+    if (this.config.destinationUrl) {
+      throw new Error('Please provide the destination chain url')
+    }
+
+    const client = createPublicClient({ 
+      transport: http(this.config.destinationUrl),
+      batch: {multicall: true} 
+    })
+
+    const erc20Address = this.config.destinationToken
+    const contract = getContract({ address: erc20Address, abi: erc20Abi, client })
+
+    const initialBalance = await contract.read.balanceOf([this.config.destinationAddress])
+    console.log('Initial balance is:', initialBalance)
+    const eventTarget = new EventTarget()
+    eventTarget.addEventListener("onAssetReceived", onAssetReceived)
+    const id = setInterval(async () => {
+      try {
+        // const balance = 0n
+        const balance = await contract.read.balanceOf([this.config.destinationAddress])
+        // console.log('Checking balance')
+        if (balance !== initialBalance) {
+          console.log('Balance changed, sending event')
+          const event = new CustomEvent("onAssetReceived")
+          eventTarget.dispatchEvent(event)
+          clearInterval(id)
+        }
+      } catch (e) {
+        console.log('ERROR when checking balance:')
+      }
+    }, 5000)
+  }
+
   async watchSettle({ onSettleCalled }: {onSettleCalled: EventListenerOrEventListenerObject}) {
     const address = this.getUDSafeAddress()
     const transferEventAbi = parseAbiItem(
@@ -261,7 +302,7 @@ export class UniversalDeposits {
     if (this.config.urls?.length === 0) 
       throw new Error('Please provide to monitor the safe address')
 
-    const checkIntervalMs = this.config.checkIntervalMs ? this.config.checkIntervalMs : 1000
+    const checkIntervalMs = this.config.checkIntervalMs ? this.config.checkIntervalMs : 3000
     const clear = (_intervalId: number) => clearInterval(_intervalId) 
     const eventTarget = new EventTarget()
 
@@ -277,16 +318,19 @@ export class UniversalDeposits {
       intervalIdsIndex: number
     ) => {
       const chainId = await client.getChainId()
-
-      if (checkOnGoing[chainId] === true) return
-      checkOnGoing[chainId] = true
-      const bytecode = await client.getBytecode({ address })
-      if (bytecode) {
-        eventTarget.dispatchEvent(new CustomEvent(eventName, { 
-          detail: { chainId } 
-        }))
-        clearInterval(intervalIds[intervalIdsIndex])
-        checkOnGoing[chainId] = false
+      // console.log(`Checking ${eventName}...`)
+      try {
+        const bytecode = await client.getBytecode({ address })
+        // console.log('bytecode', bytecode)
+        if (bytecode) {
+          // console.log(`${eventName} detected`)
+          eventTarget.dispatchEvent(new CustomEvent(eventName, { 
+            detail: { chainId } 
+          }))
+          clearInterval(intervalIds[intervalIdsIndex])
+        }
+      } catch (e) {
+        console.log('ERROR:', e)
       }
     }
 

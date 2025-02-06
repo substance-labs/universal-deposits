@@ -261,14 +261,12 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
         abi: dlnSourceAbi,
         functionName: 'globalFixedNativeFee',
       })
-
       console.log('Protoicol fee', protocolFee)
       const address = new UniversalDeposits({
         destinationAddress,
         destinationToken,
         destinationChain,
       }).getSafeModuleProxyAddress()
-
       const { request } = await pclient.simulateContract({
         address,
         abi: settleAbi,
@@ -278,7 +276,6 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
         account,
         gas: 500000,
       })
-
       const hash = await wclient.writeContract(request)
       console.log(`  Broadcasted @`, hash)
       await pclient.waitForTransactionReceipt({ hash, confirmations: 3 })
