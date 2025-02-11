@@ -5,3 +5,4 @@ cache
 broadcast
 artifacts
 node_modules
+packages/app/public/index.html
