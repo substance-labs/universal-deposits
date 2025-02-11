@@ -1,6 +1,0 @@
-## How to run
-
-```sh
-source .env
-PRIVATE_KEY=$PRIVATE_KEY node scripts/deploy.js $PATH_ADDRESSES $PATH_TOKENS $BASE_CHAIN_ID $GNOSIS_CHAIN_ID $GNOSIS_EURE $BASE_URL
-```

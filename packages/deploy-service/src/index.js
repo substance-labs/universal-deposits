@@ -61,11 +61,6 @@ const readMultilineFile = _path =>
 let UD_SAFES = {} // Maps a destination address to its UD safe address
 let TOKENS = [] // Origing tokens to watch out for deposits
 
-const debridgeChainIdMapping = {
-  100: 100000002,
-  // TODO: add other debridge chain ids here
-}
-
 const getTokenAccountBalances = async _config => {
   const client = createPublicClient({
     chain: extractChain({ id: parseInt(_config.originChainId), chains: R.values(chains) }),
@@ -191,7 +186,7 @@ const deployContractWithForge = (
       _originToken,
       _destinationAddress,
       _destinationToken,
-      UniversalDeposits.DEBRIDGE_CHAINID_MAPPING[_destinationChain],
+      _destinationChain,
     ],
     { cwd: '../evm' },
   ]).then(_ => new Promise(resolve => setTimeout(resolve, 1000))) // FIXME: this is to wait for the deployment to finish
@@ -262,12 +257,16 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
     } else {
       logger.info(`  Already found a contract for ${entry.safe}, calling settle...`)
       const dlnSource = '0xeF4fB24aD0916217251F553c0596F8Edc630EB66'
-      const protocolFee = await pclient.readContract({
-        address: dlnSource,
-        abi: dlnSourceAbi,
-        functionName: 'globalFixedNativeFee',
-      })
-      logger.info('Protoicol fee', protocolFee)
+      let protocolFee = 0
+      if (entry.token !== destinationToken || _config.originChainId !== destinationChain) {
+        protocolFee = await pclient.readContract({
+          address: dlnSource,
+          abi: dlnSourceAbi,
+          functionName: 'globalFixedNativeFee',
+        })
+      }
+
+      logger.info('Protocol fee', protocolFee)
       const address = new UniversalDeposits({
         destinationAddress,
         destinationToken,
@@ -280,7 +279,7 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
         args: [entry.safe, entry.token],
         value: protocolFee,
         account,
-        gas: 500000,
+        gas: 600000,
       })
       const hash = await wclient.writeContract(request)
       logger.info(`  Broadcasted @`, hash)

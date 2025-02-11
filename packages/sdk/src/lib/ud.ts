@@ -72,13 +72,13 @@ type ChainIdToString = {
 }
 
 export class UniversalDeposits {
-  static readonly DEBRIDGE_CHAINID_MAPPING: ChainIdToString = {
-    "100": "100000002", // gnosis
-    "8453": "8453", // base
-    "1": "1", // mainnet
-    "137": "137", // polygon
-    "42161": "42161", // arbitrum 
-  }
+  // static readonly DEBRIDGE_CHAINID_MAPPING: ChainIdToString = {
+  //   "100": "100000002", // gnosis
+  //   "8453": "8453", // base
+  //   "1": "1", // mainnet
+  //   "137": "137", // polygon
+  //   "42161": "42161", // arbitrum 
+  // }
   static readonly USDC_MAPPING: ChainIdToString = {
     "8453": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // base
     "137": "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359", // polygon
@@ -90,7 +90,7 @@ export class UniversalDeposits {
   constructor(config: UniversalDepositsConfig) {
     const { destinationChain } = config
     this.config = config
-    this.config.destinationChain = UniversalDeposits.DEBRIDGE_CHAINID_MAPPING[destinationChain.toString()]
+    this.config.destinationChain = destinationChain.toString()
     if (!this.config.destinationChain) {
       throw new Error('Unsupported chain id')
     }

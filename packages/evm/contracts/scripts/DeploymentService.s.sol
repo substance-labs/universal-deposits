@@ -33,6 +33,8 @@ contract DeploymentService is CreateXScript, StdCheats {
 	address immutable SAFE_MODULE_SETUP = 0x8EcD4ec46D4D2a6B64fE960B3D64e8B94B2234eb;
 	address immutable DEBRIDGE_DLN_SOURCE = 0xeF4fB24aD0916217251F553c0596F8Edc630EB66;
 
+	mapping(uint256 => uint256) settlementChainIds;
+
 	// Needed to compute the safe address (mismatch among bytecode retrieved
 	// from the library vs. bytecode on chain)
 	bytes SAFE_PROXY_CREATION_CODE =
@@ -75,6 +77,9 @@ contract DeploymentService is CreateXScript, StdCheats {
 			console.log('Previous logic found in .env');
 			previousLogic = result;
 		} catch {}
+
+		// Gnosis => deBridge
+		settlementChainIds[100] = 100000002;
 	}
 
 	function _getSafeModuleLogicParameters()
@@ -144,6 +149,14 @@ contract DeploymentService is CreateXScript, StdCheats {
 		);
 
 		SafeModule(proxy).toggleAutoSettlement(_token);
+
+		vm.stopBroadcast();
+	}
+
+	function setExchangeRate(address _safeModuleAddress, address _token, uint256 _rate) public {
+		vm.startBroadcast();
+
+		SafeModule(_safeModuleAddress).setExchangeRate(_token, _rate);
 
 		vm.stopBroadcast();
 	}
@@ -228,18 +241,8 @@ contract DeploymentService is CreateXScript, StdCheats {
 		vm.stopBroadcast();
 	}
 
-	function upgrade(
-		address _destinationAddress,
-		address _destinationToken,
-		uint256 _destinationChain,
-		address newImpl
-	) public {
-		vm.startBroadcast(vm.envUint('OTHER'));
-		(, , address proxy) = _getSafeModuleProxyParameters(
-			_destinationAddress,
-			_destinationToken,
-			_destinationChain
-		);
+	function upgrade(address proxy, address newImpl) public {
+		vm.startBroadcast();
 		Core.upgradeProxyTo(proxy, newImpl, '');
 		vm.stopBroadcast();
 	}
@@ -400,6 +403,11 @@ contract DeploymentService is CreateXScript, StdCheats {
 		return safeModule;
 	}
 
+	function getExchangeRate(address _safeModuleAddress, address _token) public {
+		vm.startBroadcast();
+		console.log('Exchange rate:', SafeModule(_safeModuleAddress).rates(_token));
+	}
+
 	function run(
 		uint256 _originTokenExchangeRate,
 		address _originTokenAddress,
@@ -422,6 +430,11 @@ contract DeploymentService is CreateXScript, StdCheats {
 			_destinationAddress,
 			_destinationToken,
 			_destinationChain
+		);
+
+		SafeModule(safeModule).setSettlementChainIds(
+			_destinationChain,
+			settlementChainIds[_destinationChain]
 		);
 
 		if (!SafeModule(safeModule).autoSettlement(_originTokenAddress)) {
@@ -451,11 +464,5 @@ contract DeploymentService is CreateXScript, StdCheats {
 		}
 
 		assert(IModuleManager(safe).isModuleEnabled(safeModule));
-
-		// if (IERC20(_originTokenAddress).balanceOf(safe) > 0) {
-		// 	SafeModule(safeModule).settle{
-		// 		value: IDlnSource(DEBRIDGE_DLN_SOURCE).globalFixedNativeFee()
-		// 	}(safe, _originTokenAddress);
-		// }
 	}
 }
