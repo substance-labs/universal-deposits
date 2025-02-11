@@ -1,4 +1,5 @@
 const fs = require('fs/promises')
+const { logger} = require('./get-logger.js')
 
 module.exports.monitorFile = (
   _filePath, 
@@ -14,7 +15,7 @@ module.exports.monitorFile = (
       .then((_stats) => {
         if (_stats.mtimeMs !== lastModifiedTime) {
           lastModifiedTime = _stats.mtimeMs
-          console.log(`Detected change on ${_filePath}`)
+          logger.info(`Detected change on ${_filePath}`)
           return _callback(..._callbackArgs)
         } else {
           return Promise.resolve()
@@ -29,7 +30,7 @@ module.exports.monitorFile = (
     .then((_stats) => {
       lastModifiedTime = _stats.mtimeMs
       setInterval(_monitorLoop, _interval * 1000)
-      console.log(`Monitoring of file ${_filePath} started...`)
+      logger.info(`Monitoring of file ${_filePath} started...`)
     })
     .catch((_err) => {
       console.error(_err)

@@ -1,4 +1,5 @@
-require('dotenv').config({ path: process.env.ENV_PATH || '.env' })
+const envPath = process.env.ENV_PATH
+require('dotenv').config({ path: envPath || '.env' })
 const fs = require('fs/promises')
 const R = require('ramda')
 const util = require('node:util')
@@ -15,11 +16,10 @@ const {
   concat,
   encodePacked,
 } = require('viem')
-const path = require('path')
 const { monitorFile } = require('./lib/monitor-file')
 const { UniversalDeposits } = require('@universal-deposits/sdk')
 const { privateKeyToAccount } = require('viem/accounts')
-
+const { logger } = require('./lib/get-logger')
 const settleAbi = [
   {
     type: 'function',
@@ -137,17 +137,17 @@ const updateGlobals = _config =>
       Promise.all([_tokens, getTokenAccountUDSafes(_config, _addresses)]),
     )
     .then(([_tokens, _safes]) => {
-      console.log('Updating globals...')
-      console.log(`  TOKENS: from ${TOKENS.length} elements to ${_tokens.length} elements`)
-      console.log(
+      logger.info('Updating globals...')
+      logger.info(`  TOKENS: from ${TOKENS.length} elements to ${_tokens.length} elements`)
+      logger.info(
         `  UD_SAFES: from ${R.keys(UD_SAFES).length} elements to ${R.keys(_safes).length} elements`,
       )
       TOKENS = _tokens
       UD_SAFES = _safes
 
-      R.keys(UD_SAFES).map(_key => console.log(`    ${_key}: ${UD_SAFES[_key]}`))
+      R.keys(UD_SAFES).map(_key => logger.info(`    ${_key}: ${UD_SAFES[_key]}`))
 
-      console.log('Globals updated!')
+      logger.info('Globals updated!')
     })
 
 const runShellCommand = _args =>
@@ -173,6 +173,8 @@ const deployContractWithForge = (
       '--no-storage-caching',
       '--gas-price',
       '50000000000',
+      '--gas-estimate-multiplier',
+      '150',
       './contracts/scripts/DeploymentService.s.sol',
       '--account',
       'deployer', // FIXME: this will break on another machine
@@ -194,44 +196,44 @@ const deployContractWithForge = (
     { cwd: '../evm' },
   ]).then(_ => new Promise(resolve => setTimeout(resolve, 1000))) // FIXME: this is to wait for the deployment to finish
 
-const deployContracts = (_config, _originToken, _exchangeRate) => {
-  const CreateX = '0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed'
-  const SAFEMODULE_SALT = 'universal-deposits'
-  const CREATEX_REDEPLOY_PROTECTION_FLAG = '0x00'
-  const saltBytes = concat(encodePacked(SAFEMODULE_SALT), CREATEX_REDEPLOY_PROTECTION_FLAG)
+// const deployContracts = (_config, _originToken, _exchangeRate) => {
+//   const CreateX = '0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed'
+//   const SAFEMODULE_SALT = 'universal-deposits'
+//   const CREATEX_REDEPLOY_PROTECTION_FLAG = '0x00'
+//   const saltBytes = concat(encodePacked(SAFEMODULE_SALT), CREATEX_REDEPLOY_PROTECTION_FLAG)
 
-  console.log('Saltbytes', saltBytes)
+//   logger.info('Saltbytes', saltBytes)
 
-  // bytes memory saltBytes = bytes.concat(
-  //   abi.encodePacked(SAFEMODULE_SALT),
-  //   CREATEX_REDEPLOY_PROTECTION_FLAG
-  // );
+//   // bytes memory saltBytes = bytes.concat(
+//   //   abi.encodePacked(SAFEMODULE_SALT),
+//   //   CREATEX_REDEPLOY_PROTECTION_FLAG
+//   // );
 
-  // salt = bytes32(saltBytes);
+//   // salt = bytes32(saltBytes);
 
-  // initCode = abi.encodePacked(type(SafeModule).creationCode);
+//   // initCode = abi.encodePacked(type(SafeModule).creationCode);
 
-  // if (previousLogic == address(0)) {
-  //   expected = CreateX.computeCreate2Address(
-  //     keccak256(abi.encode(salt)),
-  //     keccak256(initCode),
-  //     address(CreateX)
-  //   );
-  // } else {
-  //   expected = previousLogic;
-  // }
-}
+//   // if (previousLogic == address(0)) {
+//   //   expected = CreateX.computeCreate2Address(
+//   //     keccak256(abi.encode(salt)),
+//   //     keccak256(initCode),
+//   //     address(CreateX)
+//   //   );
+//   // } else {
+//   //   expected = previousLogic;
+//   // }
+// }
 
 const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
   const reverseUDSafeMapping = R.invertObj(UD_SAFES)
-  console.log(`Detected ${_tokensAccountBalances.length} UD safes with balance ≠ 0...`)
+  logger.info(`Detected ${_tokensAccountBalances.length} UD safes with balance ≠ 0...`)
   for (var i = _tokensAccountBalances.length - 1; i >= 0; i--) {
     const entry = _tokensAccountBalances[i]
     const destinationAddress = reverseUDSafeMapping[entry.safe]
     const destinationToken = _config.destinationToken
     const destinationChain = _config.destinationChain
     const exchangeRate = _config.exchangeRate
-    console.log(`  ${destinationAddress} => ${entry.safe} (${entry.balance} ${entry.token})`)
+    logger.info(`  ${destinationAddress} => ${entry.safe} (${entry.balance} ${entry.token})`)
     const account = privateKeyToAccount(_config.privateKey)
 
     const wclient = createWalletClient({
@@ -248,7 +250,7 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
     const code = await pclient.getBytecode({ address: entry.safe })
 
     if (!code) {
-      console.log(`  Safe ${entry.safe} not found on chain, deploying...`)
+      logger.info(`  Safe ${entry.safe} not found on chain, deploying...`)
       await deployContractWithForge(
         _config,
         destinationAddress,
@@ -258,14 +260,14 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
         exchangeRate,
       )
     } else {
-      console.log(`  Already found a contract for ${entry.safe}, calling settle...`)
+      logger.info(`  Already found a contract for ${entry.safe}, calling settle...`)
       const dlnSource = '0xeF4fB24aD0916217251F553c0596F8Edc630EB66'
       const protocolFee = await pclient.readContract({
         address: dlnSource,
         abi: dlnSourceAbi,
         functionName: 'globalFixedNativeFee',
       })
-      console.log('Protoicol fee', protocolFee)
+      logger.info('Protoicol fee', protocolFee)
       const address = new UniversalDeposits({
         destinationAddress,
         destinationToken,
@@ -281,11 +283,11 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
         gas: 500000,
       })
       const hash = await wclient.writeContract(request)
-      console.log(`  Broadcasted @`, hash)
+      logger.info(`  Broadcasted @`, hash)
       await pclient.waitForTransactionReceipt({ hash, confirmations: 3 })
     }
 
-    await console.log('  Done')
+    await logger.info('  Done')
   }
 })
 

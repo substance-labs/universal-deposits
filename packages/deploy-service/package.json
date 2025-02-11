@@ -8,6 +8,7 @@
   },
   "devDependencies": {
     "dotenv": "^16.4.7",
+    "log4js": "^6.9.1",
     "ramda": "^0.30.1"
   }
 }
