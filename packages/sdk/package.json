@@ -7,7 +7,7 @@
   "license": "MIT",
   "scripts": {
     "compile": "tsc",
-    "build": "esbuild src/index.ts --bundle --minify --sourcemap --outfile=out.min.js",
+    "build": "esbuild src/index.ts --bundle --minify --sourcemap --outfile=out.min.js && cp -v out.min.js* ../app/public/",
     "prettier:check": "npx prettier -c \"**/*.{js,ts,md,sol,json,yml,yaml}\"",
     "prettier:fix": "npx prettier -w \"**/*.{js,ts,md,sol,json,yml,yaml}\""
   },
