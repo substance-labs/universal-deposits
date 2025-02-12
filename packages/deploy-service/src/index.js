@@ -21,6 +21,7 @@ const { UniversalDeposits } = require('@universal-deposits/sdk')
 const { privateKeyToAccount } = require('viem/accounts')
 const { logger } = require('./lib/get-logger')
 
+const DEFAULT_EX_RATE = 10000
 const CONFIG = {
   addressesPath: process.env['PATH_ADDRESSES'],
   tokensPath: process.env['PATH_TOKENS'],
@@ -28,13 +29,22 @@ const CONFIG = {
   destinationChain: process.env['DESTINATION_CHAIN'],
   destinationToken: process.env['DESTINATION_TOKEN'],
   url: process.env['URL'],
-  exchangeRate: process.env['EX_RATE'] || 9200,
   broadcast: process.env['BROADCAST'] === 'true' || false,
   freq: process.env['CHECK_FREQUENCY'] || 1000,
   privateKey: process.env['PRIVATE_KEY'] || null,
 }
 
 const safeModuleProxyAbi = [
+  {
+    type: 'function',
+    name: 'setExchangeRate',
+    inputs: [
+      { name: 'token', type: 'address', internalType: 'address' },
+      { name: 'exchangeRate', type: 'uint256', internalType: 'uint256' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
   {
     type: 'function',
     name: 'toggleAutoSettlement',
@@ -87,7 +97,7 @@ const readMultilineFile = _path =>
   fs.readFile(_path).then(toString).then(R.trim).then(R.split('\n'))
 
 let UD_SAFES = {} // Maps a destination address to its UD safe address
-let TOKENS = [] // Origing tokens to watch out for deposits
+let TOKENS = [] // Array of token and relative ex rate (ie. [ { address: 0x..., exrate: 9200 } ])
 let INTERVALS = []
 
 const getTokenAccountBalances = async _config => {
@@ -98,8 +108,8 @@ const getTokenAccountBalances = async _config => {
   })
 
   const contracts = await Promise.all(
-    TOKENS.map(address => ({
-      address,
+    TOKENS.map(_token => ({
+      ..._token, // expands address and exRate
       abi: erc20Abi,
     })),
   )
@@ -132,10 +142,11 @@ const getTokenAccountBalances = async _config => {
 
   return await client
     .multicall({ contracts })
-    .then(R.zip(contracts))
+    .then(R.zip(contracts)) // merge the contract and result together
     .then(checkErrors)
     .then(
       R.map(x => ({
+        exRate: x[0].exRate,
         token: x[0].address,
         safe: x[0].args[0],
         balance: x[1].result,
@@ -164,6 +175,11 @@ const getTokenAccountUDSafes = R.curry(async (_config, _addresses) => {
   )
 })
 
+const getTokensAndExRates = (_config, _tokensLines) =>
+  Promise.all(_tokensLines.map(_line => _line.split(':'))).then(
+    R.map(R.zipObj(['address', 'exRate'])),
+  )
+
 const updateGlobals = _config =>
   Promise.all([readMultilineFile(_config.tokensPath), readMultilineFile(_config.addressesPath)])
     .then(([_tokens, _addresses]) => [
@@ -171,7 +187,10 @@ const updateGlobals = _config =>
       Array.from(new Set(_addresses)),
     ])
     .then(([_tokens, _addresses]) =>
-      Promise.all([_tokens, getTokenAccountUDSafes(_config, _addresses)]),
+      Promise.all([
+        getTokensAndExRates(_config, _tokens),
+        getTokenAccountUDSafes(_config, _addresses),
+      ]),
     )
     .then(([_tokens, _safes]) => {
       logger.info('Updating globals...')
@@ -271,7 +290,14 @@ const isAutoSettlementEnabled = async ({ address, publicClient, token }) => {
   })
 }
 
-const toggleAutoSettlement = async ({ address, account, publicClient, walletClient, token }) => {
+const toggleAutoSettlement = async ({
+  address,
+  account,
+  publicClient,
+  walletClient,
+  token,
+  exchangeRate,
+}) => {
   logger.info('  Enabling auto settlement for token', token)
   const { request } = await publicClient.simulateContract({
     address,
@@ -281,10 +307,22 @@ const toggleAutoSettlement = async ({ address, account, publicClient, walletClie
     account,
   })
 
-  const hash = await walletClient.writeContract(request)
+  let hash = await walletClient.writeContract(request)
+  await publicClient.waitForTransactionReceipt({ hash, confirmations: 2 })
+  logger.info('  Broadcasted @', hash)
+  logger.info('  Setting exchange rate to', exchangeRate)
+  const { request: request2 } = await publicClient.simulateContract({
+    address,
+    abi: safeModuleProxyAbi,
+    functionName: 'setExchangeRate',
+    args: [token, exchangeRate],
+    account,
+  })
+
+  hash = await walletClient.writeContract(request2)
+  await publicClient.waitForTransactionReceipt({ hash, confirmations: 2 })
   logger.info(`  Broadcasted @`, hash)
-  await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 })
-  logger.info('Autosettlement enabled')
+  logger.info('  Exchange rate set successfully')
 }
 
 const getGlobalFixedNativeFee = async ({ publicClient }) => {
@@ -297,6 +335,7 @@ const getGlobalFixedNativeFee = async ({ publicClient }) => {
 }
 
 const settle = async ({ address, account, publicClient, walletClient, value, safe, token }) => {
+  logger.info('Calling settle for token', token)
   const { request } = await publicClient.simulateContract({
     address,
     abi: safeModuleProxyAbi,
@@ -323,7 +362,7 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
     const destinationAddress = reverseUDSafeMapping[entry.safe]
     const destinationToken = _config.destinationToken
     const destinationChain = _config.destinationChain
-    const exchangeRate = _config.exchangeRate
+
     logger.info(`  ${destinationAddress} => ${entry.safe} (${entry.balance} ${entry.token})`)
     const account = privateKeyToAccount(_config.privateKey)
 
@@ -348,7 +387,7 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
         destinationToken,
         destinationChain,
         entry.token,
-        exchangeRate,
+        entry.exRate || DEFAULT_EX_RATE,
       )
     } else {
       logger.info(`  Already found a contract for ${entry.safe}, calling settle...`)
@@ -372,7 +411,10 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
           publicClient,
           walletClient,
           token: entry.token,
+          exchangeRate: entry.exRate || DEFAULT_EX_RATE,
         })
+      } else {
+        logger.info('  Auto settlement enabled for token', entry.token)
       }
 
       let protocolFee = 0
