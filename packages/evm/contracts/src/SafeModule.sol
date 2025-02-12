@@ -60,7 +60,7 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
     }
 
     function _placeDeBridgeOrder(address safe, address token) internal {
-        require(settlementChainIds[destinationChain] != 0, "Settlement chain id not set");
+        require(settlementChainIds[destinationChain] != 0, 'Settlement chain id not set');
         uint256 tokenDecimals = _getTokenDecimals(token);
         uint256 protocolFee = IDlnSource(DEBRIDGE_DLN_SOURCE).globalFixedNativeFee();
         uint256 tokenBalance = IERC20(token).balanceOf(safe);
@@ -76,7 +76,7 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable {
             giveAmount, // giveAmount (uint256)
             abi.encodePacked(destinationToken), // takeTokenAddress (bytes)
             takeAmount, // takeAmount (uint256)
-            , // takeChainId (uint256)
+            settlementChainIds[destinationChain], // takeChainId (uint256)
             abi.encodePacked(destinationAddress), // receiverDst (bytes)
             safe, // givePatchAuthoritySrc (address)
             abi.encodePacked(destinationAddress), // orderAuthorityAddressDst (bytes)

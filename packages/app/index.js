@@ -2,7 +2,7 @@ const express = require('express')
 const fs = require('fs')
 const path = require('path')
 const app = express()
-const FILE_PATH = '../evm/scripts/addresses.txt'
+const FILE_PATH = '../deploy-service/addresses.txt'
 
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*') // Allow all domains
