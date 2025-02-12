@@ -49,7 +49,7 @@ type UniversalDepositsConfig = {
   destinationChain: string,
   urls?: string[],
   checkIntervalMs?: number
-  destinationUrl?: string[]
+  destinationUrl?: string
 }
 
 type DeploymentFeedback = { 
@@ -72,13 +72,6 @@ type ChainIdToString = {
 }
 
 export class UniversalDeposits {
-  // static readonly DEBRIDGE_CHAINID_MAPPING: ChainIdToString = {
-  //   "100": "100000002", // gnosis
-  //   "8453": "8453", // base
-  //   "1": "1", // mainnet
-  //   "137": "137", // polygon
-  //   "42161": "42161", // arbitrum 
-  // }
   static readonly USDC_MAPPING: ChainIdToString = {
     "8453": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // base
     "137": "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359", // polygon
@@ -226,7 +219,7 @@ export class UniversalDeposits {
           to: [this.getUDSafeAddress()]
         },
         onLogs: () => {
-          const event = new CustomEvent("onBalanceChange", { detail: { chainId } })
+          const event = new CustomEvent("onBalanceChange", { detail: { chainId, token: erc20Address } })
           eventTarget.dispatchEvent(event)
         }
       })
@@ -239,7 +232,7 @@ export class UniversalDeposits {
       'event Transfer(address indexed from, address indexed to, uint256 value)'
     )
 
-    if (this.config.destinationUrl) {
+    if (this.config.destinationUrl === undefined) {
       throw new Error('Please provide the destination chain url')
     }
 
@@ -269,7 +262,7 @@ export class UniversalDeposits {
       } catch (e) {
         console.log('ERROR when checking balance:')
       }
-    }, 5000)
+    }, this.config.checkIntervalMs || 1500)
   }
 
   async watchSettle({ onSettleCalled }: {onSettleCalled: EventListenerOrEventListenerObject}) {
@@ -291,7 +284,7 @@ export class UniversalDeposits {
           from: [this.getUDSafeAddress()]
         },
         onLogs: () => {
-          const event = new CustomEvent("onSettleCalled", { detail: { chainId } })
+          const event = new CustomEvent("onSettleCalled", { detail: { chainId, token: erc20Address } })
           eventTarget.dispatchEvent(event)
         }
       })
@@ -318,12 +311,9 @@ export class UniversalDeposits {
       intervalIdsIndex: number
     ) => {
       const chainId = await client.getChainId()
-      // console.log(`Checking ${eventName}...`)
       try {
         const bytecode = await client.getBytecode({ address })
-        // console.log('bytecode', bytecode)
         if (bytecode) {
-          // console.log(`${eventName} detected`)
           eventTarget.dispatchEvent(new CustomEvent(eventName, { 
             detail: { chainId } 
           }))
