@@ -28,7 +28,7 @@ app.get('/newaddress', (req, res) => {
   const address = req.query.address
   fs.appendFileSync(FILE_PATH, address + '\n')
   console.log('Address saved', address)
-  res.status(200).send('ciaociaociaocia')
+  res.status(200).send('new address added')
 })
 
 app.listen(3000, () => console.log('Server running on port 3000'))
