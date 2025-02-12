@@ -3,7 +3,7 @@ require('dotenv').config({ path: envPath || '.env' })
 const path = require('path')
 const log4js = require('log4js')
 const appName = path.basename(envPath, path.extname(envPath)).replace('.', '') || '.env'
-const pattern = `[${appName}][%d{yyyy-MM-dd|hh:mm:ss}] %m`
+const pattern = `[${appName}][%p][%d{yyyy-MM-dd|hh:mm:ss}] %m`
 
 log4js.configure({
   appenders: {
@@ -16,14 +16,18 @@ log4js.configure({
       filename: `logs/${appName}.log`,
       pattern: 'yyyy-MM-dd',
       keepFileExt: true,
-      compress: true,
+      compress: false,
       numBackups: 10,
       layout: { type: 'pattern', pattern },
     },
+    "only-info": {
+      type: "logLevelFilter",
+      appender: "file",
+      level: "info"
+    }
   },
   categories: {
-    default: { appenders: ['console', 'file'], level: 'debug' },
-    infoOnly: { appenders: ['console'], level: 'info' },
+    default: { appenders: ['only-info', 'console'], level: 'debug' },
   },
 })
 

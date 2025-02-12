@@ -29,8 +29,10 @@ module.exports.monitorFile = (
     .stat(_filePath)
     .then((_stats) => {
       lastModifiedTime = _stats.mtimeMs
-      setInterval(_monitorLoop, _interval * 1000)
+      const id = setInterval(_monitorLoop, _interval * 1000)
       logger.info(`Monitoring of file ${_filePath} started...`)
+
+      return id
     })
     .catch((_err) => {
       console.error(_err)

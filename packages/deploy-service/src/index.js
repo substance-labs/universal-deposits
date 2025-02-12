@@ -20,7 +20,28 @@ const { monitorFile } = require('./lib/monitor-file')
 const { UniversalDeposits } = require('@universal-deposits/sdk')
 const { privateKeyToAccount } = require('viem/accounts')
 const { logger } = require('./lib/get-logger')
-const settleAbi = [
+
+const CONFIG = {
+  addressesPath: process.env['PATH_ADDRESSES'],
+  tokensPath: process.env['PATH_TOKENS'],
+  originChainId: process.env['ORIGIN_CHAIN'],
+  destinationChain: process.env['DESTINATION_CHAIN'],
+  destinationToken: process.env['DESTINATION_TOKEN'],
+  url: process.env['URL'],
+  exchangeRate: process.env['EX_RATE'] || 9200,
+  broadcast: process.env['BROADCAST'] === 'true' || false,
+  freq: process.env['CHECK_FREQUENCY'] || 1000,
+  privateKey: process.env['PRIVATE_KEY'] || null,
+}
+
+const safeModuleProxyAbi = [
+  {
+    type: 'function',
+    name: 'toggleAutoSettlement',
+    inputs: [{ name: 'token', type: 'address', internalType: 'address' }],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
   {
     type: 'function',
     name: 'settle',
@@ -30,6 +51,13 @@ const settleAbi = [
     ],
     outputs: [],
     stateMutability: 'payable',
+  },
+  {
+    type: 'function',
+    name: 'autoSettlement',
+    inputs: [{ name: '', type: 'address', internalType: 'address' }],
+    outputs: [{ name: '', type: 'bool', internalType: 'bool' }],
+    stateMutability: 'view',
   },
 ]
 
@@ -60,6 +88,7 @@ const readMultilineFile = _path =>
 
 let UD_SAFES = {} // Maps a destination address to its UD safe address
 let TOKENS = [] // Origing tokens to watch out for deposits
+let INTERVALS = []
 
 const getTokenAccountBalances = async _config => {
   const client = createPublicClient({
@@ -89,9 +118,22 @@ const getTokenAccountBalances = async _config => {
     )
     .then(R.flatten)
 
+  const checkErrors = _results => {
+    for (let result of _results) {
+      if (R.has('error', result[1])) {
+        logger.error(result[1].error.shortMessage)
+        logger.error(result[1].error.details)
+        return Promise.reject(new Error('Error when checking balance'))
+      }
+    }
+
+    return Promise.resolve(_results)
+  }
+
   return await client
     .multicall({ contracts })
     .then(R.zip(contracts))
+    .then(checkErrors)
     .then(
       R.map(x => ({
         token: x[0].address,
@@ -219,9 +261,63 @@ const deployContractWithForge = (
 //   // }
 // }
 
+const isAutoSettlementEnabled = async ({ address, publicClient, token }) => {
+  logger.info(`  Checking auto settlement for token ${token} is enabled...`)
+  return await publicClient.readContract({
+    address,
+    abi: safeModuleProxyAbi,
+    functionName: 'autoSettlement',
+    args: [token],
+  })
+}
+
+const toggleAutoSettlement = async ({ address, account, publicClient, walletClient, token }) => {
+  logger.info('  Enabling auto settlement for token', token)
+  const { request } = await publicClient.simulateContract({
+    address,
+    abi: safeModuleProxyAbi,
+    functionName: 'toggleAutoSettlement',
+    args: [token],
+    account,
+  })
+
+  const hash = await walletClient.writeContract(request)
+  logger.info(`  Broadcasted @`, hash)
+  await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 })
+  logger.info('Autosettlement enabled')
+}
+
+const getGlobalFixedNativeFee = async ({ publicClient }) => {
+  const dlnSource = '0xeF4fB24aD0916217251F553c0596F8Edc630EB66'
+  return await publicClient.readContract({
+    address: dlnSource,
+    abi: dlnSourceAbi,
+    functionName: 'globalFixedNativeFee',
+  })
+}
+
+const settle = async ({ address, account, publicClient, walletClient, value, safe, token }) => {
+  const { request } = await publicClient.simulateContract({
+    address,
+    abi: safeModuleProxyAbi,
+    functionName: 'settle',
+    args: [safe, token],
+    value,
+    account,
+    gas: 600000,
+  })
+  const hash = await walletClient.writeContract(request)
+  logger.info(`  Broadcasted @`, hash)
+  await publicClient.waitForTransactionReceipt({ hash, confirmations: 3 })
+}
+
 const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
   const reverseUDSafeMapping = R.invertObj(UD_SAFES)
-  logger.info(`Detected ${_tokensAccountBalances.length} UD safes with balance ≠ 0...`)
+  if (_tokensAccountBalances.length > 0) {
+    logger.info(`Detected ${_tokensAccountBalances.length} UD safes with balance ≠ 0...`)
+  } else {
+    logger.debug(`Detected ${_tokensAccountBalances.length} UD safes with balance ≠ 0...`)
+  }
   for (var i = _tokensAccountBalances.length - 1; i >= 0; i--) {
     const entry = _tokensAccountBalances[i]
     const destinationAddress = reverseUDSafeMapping[entry.safe]
@@ -231,18 +327,18 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
     logger.info(`  ${destinationAddress} => ${entry.safe} (${entry.balance} ${entry.token})`)
     const account = privateKeyToAccount(_config.privateKey)
 
-    const wclient = createWalletClient({
+    const walletClient = createWalletClient({
       chain: extractChain({ id: parseInt(_config.originChainId), chains: R.values(chains) }),
       transport: http(_config.url),
       account,
     })
-    const pclient = createPublicClient({
+    const publicClient = createPublicClient({
       chain: extractChain({ id: parseInt(_config.originChainId), chains: R.values(chains) }),
       transport: http(_config.url),
       batch: { multicall: true },
     })
 
-    const code = await pclient.getBytecode({ address: entry.safe })
+    const code = await publicClient.getBytecode({ address: entry.safe })
 
     if (!code) {
       logger.info(`  Safe ${entry.safe} not found on chain, deploying...`)
@@ -256,34 +352,44 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
       )
     } else {
       logger.info(`  Already found a contract for ${entry.safe}, calling settle...`)
-      const dlnSource = '0xeF4fB24aD0916217251F553c0596F8Edc630EB66'
-      let protocolFee = 0
-      if (entry.token !== destinationToken || _config.originChainId !== destinationChain) {
-        protocolFee = await pclient.readContract({
-          address: dlnSource,
-          abi: dlnSourceAbi,
-          functionName: 'globalFixedNativeFee',
-        })
-      }
-
-      logger.info('Protocol fee', protocolFee)
       const address = new UniversalDeposits({
         destinationAddress,
         destinationToken,
         destinationChain,
       }).getSafeModuleProxyAddress()
-      const { request } = await pclient.simulateContract({
+
+      const autoSettlementEnabled = await isAutoSettlementEnabled({
+        publicClient,
         address,
-        abi: settleAbi,
-        functionName: 'settle',
-        args: [entry.safe, entry.token],
-        value: protocolFee,
-        account,
-        gas: 600000,
+        token: entry.token,
       })
-      const hash = await wclient.writeContract(request)
-      logger.info(`  Broadcasted @`, hash)
-      await pclient.waitForTransactionReceipt({ hash, confirmations: 3 })
+
+      if (!autoSettlementEnabled) {
+        logger.info('  Auto settlement disabled for token', entry.token)
+        await toggleAutoSettlement({
+          address,
+          account,
+          publicClient,
+          walletClient,
+          token: entry.token,
+        })
+      }
+
+      let protocolFee = 0
+      if (entry.token !== destinationToken || _config.originChainId !== destinationChain) {
+        protocolFee = await getGlobalFixedNativeFee({ publicClient })
+      }
+      logger.info('  Protocol fee', protocolFee)
+
+      await settle({
+        publicClient,
+        walletClient,
+        address,
+        account,
+        value: protocolFee,
+        safe: entry.safe,
+        token: entry.token,
+      })
     }
 
     await logger.info('  Done')
@@ -307,19 +413,19 @@ const deploymentLoop = async (_config, _intervalId) => {
 
 const main = _config =>
   updateGlobals(_config).then(_ => {
-    setInterval(deploymentLoop, _config.freq, _config)
-    monitorFile(_config.addressesPath, 3, updateGlobals, [_config])
+    INTERVALS.push(setInterval(deploymentLoop, _config.freq, _config))
+    INTERVALS.push(monitorFile(_config.addressesPath, 3, updateGlobals, [_config]))
   })
 
-main({
-  addressesPath: process.env['PATH_ADDRESSES'],
-  tokensPath: process.env['PATH_TOKENS'],
-  originChainId: process.env['ORIGIN_CHAIN'],
-  destinationChain: process.env['DESTINATION_CHAIN'],
-  destinationToken: process.env['DESTINATION_TOKEN'],
-  url: process.env['URL'],
-  exchangeRate: process.env['EX_RATE'] || 9200,
-  broadcast: process.env['BROADCAST'] === 'true' || false,
-  freq: process.env['CHECK_FREQUENCY'] || 1000,
-  privateKey: process.env['PRIVATE_KEY'] || null,
+process.on('unhandledRejection', _error => {
+  // Cleanup
+  INTERVALS.map(x => clearInterval(x))
+  logger.info(`Removing ${INTERVALS.length} intervals...`)
+  INTERVALS = []
+  logger.error('General error:', _error)
+  logger.info('Intervals cleared!')
+  logger.info('Resuming in 5s...')
+  setTimeout(main, 5000, CONFIG)
 })
+
+main(CONFIG)
