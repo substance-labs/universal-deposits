@@ -32,6 +32,7 @@ contract DeploymentService is CreateXScript, StdCheats {
 	address immutable SAFE_PAYMENT_RECEIVER = 0x5afe7A11E7000000000000000000000000000000;
 	address immutable SAFE_MODULE_SETUP = 0x8EcD4ec46D4D2a6B64fE960B3D64e8B94B2234eb;
 	address immutable DEBRIDGE_DLN_SOURCE = 0xeF4fB24aD0916217251F553c0596F8Edc630EB66;
+	address immutable SAFE_EXTENSIBLE_FALLBACK_HANDLER = 0x2f55e8b20D0B9FEFA187AA7d00B6Cbe563605bF5;
 
 	mapping(uint256 => uint256) settlementChainIds;
 
@@ -153,6 +154,12 @@ contract DeploymentService is CreateXScript, StdCheats {
 		vm.stopBroadcast();
 	}
 
+	function toggleAutoSettlement(address _safeModule, address _token) public {
+		vm.startBroadcast();
+		SafeModule(_safeModule).toggleAutoSettlement(_token);
+		vm.stopBroadcast();
+	}
+
 	function setExchangeRate(address _safeModuleAddress, address _token, uint256 _rate) public {
 		vm.startBroadcast();
 
@@ -240,6 +247,11 @@ contract DeploymentService is CreateXScript, StdCheats {
 		SafeModule(_safeModuleAddress).settle{value: protocolFee}(_safe, _token);
 		vm.stopBroadcast();
 	}
+	function settleCow(address _safeModuleAddress, address _safe, address _token) public {
+		vm.startBroadcast();
+		SafeModule(_safeModuleAddress).settle(_safe, _token);
+		vm.stopBroadcast();
+	}
 
 	function upgrade(address proxy, address newImpl) public {
 		vm.startBroadcast();
@@ -280,7 +292,7 @@ contract DeploymentService is CreateXScript, StdCheats {
 			threshold,
 			SAFE_MODULE_SETUP,
 			enableModuleData,
-			SAFE_FALLBACK_HANDLER,
+			SAFE_EXTENSIBLE_FALLBACK_HANDLER, // SAFE_FALLBACK_HANDLER,
 			paymentToken,
 			paymentAmount,
 			SAFE_PAYMENT_RECEIVER
@@ -408,6 +420,12 @@ contract DeploymentService is CreateXScript, StdCheats {
 		console.log('Exchange rate:', SafeModule(_safeModuleAddress).rates(_token));
 	}
 
+	function setDomain(address _safeModule, address safe) public {
+		vm.startBroadcast();
+		SafeModule(_safeModule).setDomain(safe);
+		vm.stopBroadcast();
+	}
+
 	function run(
 		uint256 _originTokenExchangeRate,
 		address _originTokenAddress,
@@ -451,7 +469,7 @@ contract DeploymentService is CreateXScript, StdCheats {
 		);
 
 		if (safe.code.length > 0) {
-			console.log('UD safe already deployer @', safe);
+			console.log('UD safe already deployed @', safe);
 		} else {
 			safe = address(
 				SafeProxyFactory(ADDRESS_SAFE_PROXY_FACTORY).createProxyWithNonce(
@@ -460,6 +478,13 @@ contract DeploymentService is CreateXScript, StdCheats {
 					nonce
 				)
 			);
+
+			// Needed in order to verify EIP712 signature
+			// for CoW swaps
+			// TODO: this should be included into the
+			// safe initializer data somehow, keeping this shortcut
+			// for now
+			SafeModule(safeModule).setDomain(safe);
 			console.log('UD deployed @', safe);
 		}
 

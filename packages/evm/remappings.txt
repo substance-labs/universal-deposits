@@ -19,3 +19,4 @@ solidity-stringutils/=contracts/lib/openzeppelin-foundry-upgrades/lib/solidity-s
 openzeppelin-foundry-upgrades/=contracts/lib/openzeppelin-foundry-upgrades/src/
 @safe-global/safe-singleton-factory/=contracts/lib/safe-singleton-factory/
 @safe-global/safe-contracts/=contracts/lib/safe-smart-account/
+safe/=/home/mauro/w/universal-deposits/packages/evm/contracts/lib/composable-cow/lib/safe/contracts/

@@ -22,3 +22,6 @@
 [submodule "packages/evm/contracts/lib/createx-forge"]
 	path = packages/evm/contracts/lib/createx-forge
 	url = https://github.com/radeksvarz/createx-forge
+[submodule "packages/evm/contracts/lib/composable-cow"]
+	path = packages/evm/contracts/lib/composable-cow
+	url = https://github.com/cowprotocol/composable-cow
