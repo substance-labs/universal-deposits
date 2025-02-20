@@ -1,6 +1,7 @@
 node_modules
 pnpm-lock.yaml
 lib
+!**/src/lib
 cache
 cache_hardhat
 cache_hardhat-zk
