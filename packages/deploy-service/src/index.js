@@ -15,11 +15,20 @@ const {
   extractChain,
   concat,
   encodePacked,
+  decodeEventLog,
+  decodeAbiParameters,
 } = require('viem')
 const { monitorFile } = require('./lib/monitor-file')
 const { UniversalDeposits } = require('@universal-deposits/sdk')
 const { privateKeyToAccount } = require('viem/accounts')
 const { logger } = require('./lib/get-logger')
+const { OrderBookApi, OrderCreation, OrderPostError } = require('@cowprotocol/cow-sdk')
+const {
+  composableCoWAbi,
+  safeModuleProxyAbi,
+  dlnSourceAbi,
+  Gpv2OrderDataAbi,
+} = require('./lib/abi')
 
 const DEFAULT_EX_RATE = 10000
 const CONFIG = {
@@ -32,65 +41,11 @@ const CONFIG = {
   broadcast: process.env['BROADCAST'] === 'true' || false,
   freq: process.env['CHECK_FREQUENCY'] || 1000,
   privateKey: process.env['PRIVATE_KEY'] || null,
+  cowApi: process.env['COW_ORDERS_API'] || 'https://api.cow.fi/xdai',
 }
-
-const safeModuleProxyAbi = [
-  {
-    type: 'function',
-    name: 'setExchangeRate',
-    inputs: [
-      { name: 'token', type: 'address', internalType: 'address' },
-      { name: 'exchangeRate', type: 'uint256', internalType: 'uint256' },
-    ],
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    name: 'toggleAutoSettlement',
-    inputs: [{ name: 'token', type: 'address', internalType: 'address' }],
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    name: 'settle',
-    inputs: [
-      { name: 'safe', type: 'address', internalType: 'address' },
-      { name: 'token', type: 'address', internalType: 'address' },
-    ],
-    outputs: [],
-    stateMutability: 'payable',
-  },
-  {
-    type: 'function',
-    name: 'autoSettlement',
-    inputs: [{ name: '', type: 'address', internalType: 'address' }],
-    outputs: [{ name: '', type: 'bool', internalType: 'bool' }],
-    stateMutability: 'view',
-  },
-]
-
-const dlnSourceAbi = [
-  {
-    type: 'function',
-    name: 'globalFixedNativeFee',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint88', internalType: 'uint88' }],
-    stateMutability: 'nonpayable',
-  },
-]
 
 // Usage
 // deploy.js <addressesPath> <originTokensPath> <originChainId> <destinationChain> <destinationToken> <destinationChain> <url>
-const getBalanceAbiItem = {
-  name: 'getBalance',
-  type: 'function',
-  stateMutability: 'view',
-  inputs: [{ type: 'address' }],
-  outputs: [{ type: 'uint256' }],
-}
-
 const toString = R.invoker(0, 'toString')
 
 const readMultilineFile = _path =>
@@ -99,6 +54,7 @@ const readMultilineFile = _path =>
 let UD_SAFES = {} // Maps a destination address to its UD safe address
 let TOKENS = [] // Array of token and relative ex rate (ie. [ { address: 0x..., exrate: 9200 } ])
 let INTERVALS = []
+let IGNORED_SAFES_LIST = []
 
 const getTokenAccountBalances = async _config => {
   const client = createPublicClient({
@@ -140,7 +96,7 @@ const getTokenAccountBalances = async _config => {
     return Promise.resolve(_results)
   }
 
-  return await client
+  const safesBalances = await client
     .multicall({ contracts })
     .then(R.zip(contracts)) // merge the contract and result together
     .then(checkErrors)
@@ -152,7 +108,31 @@ const getTokenAccountBalances = async _config => {
         balance: x[1].result,
       })),
     )
-    .then(R.filter(x => x.balance > 0))
+
+  // We remove any ignored safes from the
+  // ignored list as we assume that any
+  // pending settlement was ended
+  const safesWithZeroBalance = R.filter(x => x.balance === 0, safesBalances)
+
+  const prevLength = IGNORED_SAFES_LIST.length
+  IGNORED_SAFES_LIST = IGNORED_SAFES_LIST.reduce((acc, elem) => {
+    const hasSafeBalance = safesWithZeroBalance.map(R.prop('safe')).indexOf(elem.safe) < 0
+    if (hasSafeBalance) {
+      acc.push(elem)
+    } else {
+      logger.debug(`Safe ${elem.safe} removed from the safe ignored list`)
+    }
+    return acc
+  }, [])
+
+  const newLength = IGNORED_SAFES_LIST.length
+  if (prevLength > 0 && prevLength - newLength > 0) {
+    logger.debug(
+      `Removed ${prevLength - newLength} safes from the ignored list because they have zero balance`,
+    )
+  }
+
+  return R.filter(x => x.balance > 0, safesBalances)
 }
 
 const getTokenAccountUDSafes = R.curry(async (_config, _addresses) => {
@@ -334,8 +314,59 @@ const getGlobalFixedNativeFee = async ({ publicClient }) => {
   })
 }
 
+const maybeSubmitCoWOrder = async ({ publicClient, receipt, safe }) => {
+  const composableCow = '0xfdafc9d1902f4e0b84f65f49f244b32b31013b74'
+  const conditionalOrderTopic = '0x2cceac5555b0ca45a3744ced542f54b56ad2eb45e521962372eef212a2cbf361'
+  const log = receipt.logs.filter(
+    x => x.address === composableCow && x.topics[0] === conditionalOrderTopic,
+  )[0]
+
+  if (log !== undefined) {
+    logger.info('  CoW order found in the tx receipt, submitting to the api...')
+    const decodedLog = decodeEventLog({
+      abi: composableCoWAbi,
+      ...log,
+    })
+
+    const order = R.zipObj(
+      [
+        'sellToken',
+        'buyToken',
+        'receiver',
+        'sellAmount',
+        'buyAmount',
+        'validTo',
+        'appData',
+        'feeAmount',
+        'kind',
+        'partiallyFillable',
+        'sellTokenBalance',
+        'buyTokenBalance',
+      ],
+      decodeAbiParameters(Gpv2OrderDataAbi, decodedLog.args.params.staticInput),
+    )
+
+    try {
+      const x = await publicClient.readContract({
+        composableCow,
+        abi: composableCoWAbi,
+        functionName: 'getTradeableOrderWithSignature',
+        args: [safe, decodedLog.args.params, '0x', []],
+      })
+
+      // FIXME: fails because balance is withdrawn from the solves and the sellAmount isn't valid anymore
+      // through getTradeableOrder (see the revert 'invalid amount')
+      // This should continue by submitting the order to orders api
+    } catch (err) {
+      logger.error(err.details)
+    }
+  } else {
+    logger.debug('No CoW event orders found in the event logs')
+  }
+}
+
 const settle = async ({ address, account, publicClient, walletClient, value, safe, token }) => {
-  logger.info('Calling settle for token', token)
+  logger.info('  Calling settle for token', token)
   const { request } = await publicClient.simulateContract({
     address,
     abi: safeModuleProxyAbi,
@@ -347,7 +378,9 @@ const settle = async ({ address, account, publicClient, walletClient, value, saf
   })
   const hash = await walletClient.writeContract(request)
   logger.info(`  Broadcasted @`, hash)
-  await publicClient.waitForTransactionReceipt({ hash, confirmations: 3 })
+  const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 2 })
+
+  await maybeSubmitCoWOrder({ receipt, publicClient, safe })
 }
 
 const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
@@ -423,6 +456,8 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
       }
       logger.info('  Protocol fee', protocolFee)
 
+      IGNORED_SAFES_LIST.push({ safe: entry.safe, ttl: Date.now() })
+
       await settle({
         publicClient,
         walletClient,
@@ -447,9 +482,22 @@ const deploymentLoop = async (_config, _intervalId) => {
 
   try {
     locked = true
-    await getTokenAccountBalances(_config).then(maybeDeployUDSafes(_config))
+    await getTokenAccountBalances(_config)
+      // .then(x => console.log('IGNORED', IGNORED_SAFES_LIST.map(R.prop('safe'))) || x)
+      .then(R.filter(x => IGNORED_SAFES_LIST.map(R.prop('safe')).indexOf(x.safe) < 0))
+      .then(maybeDeployUDSafes(_config))
   } finally {
     locked = false
+  }
+}
+
+const maybePurgeIgnoredSafesList = () => {
+  const now = Date.now()
+  const prevLength = IGNORED_SAFES_LIST.length
+  IGNORED_SAFES_LIST = IGNORED_SAFES_LIST.filter(x => x.ttl + 60000 > now)
+  const newLength = IGNORED_SAFES_LIST.length
+  if (prevLength > 0 && prevLength - newLength > 0) {
+    logger.debug(`Safes ignored list purged by ${prevLength - newLength} elements`)
   }
 }
 
@@ -457,6 +505,7 @@ const main = _config =>
   updateGlobals(_config).then(_ => {
     INTERVALS.push(setInterval(deploymentLoop, _config.freq, _config))
     INTERVALS.push(monitorFile(_config.addressesPath, 3, updateGlobals, [_config]))
+    INTERVALS.push(setInterval(maybePurgeIgnoredSafesList, 1000))
   })
 
 process.on('unhandledRejection', _error => {

@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "license": "MIT",
   "dependencies": {
+    "@cowprotocol/cow-sdk": "^5.10.1-RC.0",
     "@universal-deposits/sdk": "1.0.0"
   },
   "devDependencies": {
