@@ -26,7 +26,7 @@ import {
   toFunctionSignature,
   toHex,
   zeroAddress,
-  parseAbiItem
+  parseAbiItem,
 } from 'viem'
 import SafeModuleJson from './abis/SafeModule.json'
 import ERC1967Proxy from './abis/ERC1967Proxy.json'
@@ -47,16 +47,16 @@ const ADDRESS_SAFE_SINGLETON = '0x41675C099F32341bf84BFc5382aF534df5C7461a' as A
 type UniversalDepositsConfig = {
   destinationAddress: Address
   destinationToken: Address
-  destinationChain: string,
-  urls?: string[],
+  destinationChain: string
+  urls?: string[]
   checkIntervalMs?: number
   destinationUrl?: string
 }
 
-type DeploymentFeedback = { 
-  onLogicDeploy: EventListenerOrEventListenerObject, 
-  onProxyDeploy: EventListenerOrEventListenerObject, 
-  onSafeDeploy: EventListenerOrEventListenerObject 
+type DeploymentFeedback = {
+  onLogicDeploy: EventListenerOrEventListenerObject
+  onProxyDeploy: EventListenerOrEventListenerObject
+  onSafeDeploy: EventListenerOrEventListenerObject
 }
 
 type EventMappingValue = {
@@ -69,17 +69,20 @@ type EventMapping = {
 }
 
 type ChainIdToString = {
-  [key: string]: string 
+  [key: string]: string
 }
 
 export class UniversalDeposits {
   static readonly USDC_MAPPING: ChainIdToString = {
-    "8453": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // base
-    "137": "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359", // polygon
-    "42161": "0xaf88d065e77c8cc2239327c5edb3a432268e5831", // arbitrum 
-    "100": "0x2a22f9c3b484c3629090feed35f17ff8f88f76f0", // gnosis
+    '8453': '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', // base
+    '137': '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359', // polygon
+    '42161': '0xaf88d065e77c8cc2239327c5edb3a432268e5831', // arbitrum
+    '100': '0x2a22f9c3b484c3629090feed35f17ff8f88f76f0', // gnosis
   }
 
+  static readonly EURE_MAPPING: ChainIdToString = {
+    '100': '0xcB444e90D8198415266c6a2724b7900fb12FC56E', // gnosis
+  }
 
   config: UniversalDepositsConfig
   constructor(config: UniversalDepositsConfig) {
@@ -202,45 +205,98 @@ export class UniversalDeposits {
     return toHex(toBytes(hash).slice(12))
   }
 
-  async watchTokenTransfer({ onBalanceChange }: {onBalanceChange: EventListenerOrEventListenerObject}) {
+  async watchTokenTransfer({
+    onBalanceChange,
+  }: {
+    onBalanceChange: EventListenerOrEventListenerObject
+  }) {
     const address = this.getUDSafeAddress()
     const transferEventAbi = parseAbiItem(
-      'event Transfer(address indexed from, address indexed to, uint256 value)'
+      'event Transfer(address indexed from, address indexed to, uint256 value)',
     )
     for (let url of this.config.urls as string[]) {
       const client = createPublicClient({ transport: http(url) })
       const chainId = await client.getChainId()
-      
+
       const eventTarget = new EventTarget()
-      eventTarget.addEventListener("onBalanceChange", onBalanceChange)
+      eventTarget.addEventListener('onBalanceChange', onBalanceChange)
       const erc20Address = UniversalDeposits.USDC_MAPPING[chainId] as `0x${string}`
       const unwatch = client.watchEvent({
         address: erc20Address, // ERC-20 token address
         event: transferEventAbi,
         args: {
-          to: [this.getUDSafeAddress()]
+          to: [this.getUDSafeAddress()],
         },
         onLogs: () => {
-          const event = new CustomEvent("onBalanceChange", { detail: { chainId, token: erc20Address } })
+          const event = new CustomEvent('onBalanceChange', {
+            detail: { chainId, token: erc20Address },
+          })
           eventTarget.dispatchEvent(event)
-        }
+        },
       })
     }
   }
 
-  async watchAssetReceived({ onAssetReceived }: {onAssetReceived: EventListenerOrEventListenerObject}) {
+  // FIXME: shortcut, create instea a more general
+  // watch event accepting the tokens to watch as a
+  // parameter
+  async watchDestinationTokenTransfer({
+    url,
+    onBalanceChange,
+  }: {
+    url: string
+    onBalanceChange: EventListenerOrEventListenerObject
+  }) {
+    const address = this.getUDSafeAddress()
+    const transferEventAbi = parseAbiItem(
+      'event Transfer(address indexed from, address indexed to, uint256 value)',
+    )
+
+    const client = createPublicClient({ transport: http(url) })
+    const chainId = await client.getChainId()
+
+    if (chainId.toString() !== this.config.destinationChain) {
+      console.log(
+        'Error: Invalid URL for `watchDestinationTokenTransfer`, expected chain id:',
+        this.config.destinationChain,
+      )
+    }
+
+    const eventTarget = new EventTarget()
+    eventTarget.addEventListener('onBalanceChange', onBalanceChange)
+    const erc20Address = UniversalDeposits.EURE_MAPPING[chainId] as `0x${string}`
+    client.watchEvent({
+      address: erc20Address, // ERC-20 token address
+      event: transferEventAbi,
+      args: {
+        to: [this.getUDSafeAddress()],
+      },
+      onLogs: () => {
+        const event = new CustomEvent('onBalanceChange', {
+          detail: { chainId, token: erc20Address },
+        })
+        eventTarget.dispatchEvent(event)
+      },
+    })
+  }
+
+  async watchAssetReceived({
+    onAssetReceived,
+  }: {
+    onAssetReceived: EventListenerOrEventListenerObject
+  }) {
     const address = this.config.destinationAddress
     const transferEventAbi = parseAbiItem(
-      'event Transfer(address indexed from, address indexed to, uint256 value)'
+      'event Transfer(address indexed from, address indexed to, uint256 value)',
     )
 
     if (this.config.destinationUrl === undefined) {
       throw new Error('Please provide the destination chain url')
     }
 
-    const client = createPublicClient({ 
+    const client = createPublicClient({
       transport: http(this.config.destinationUrl),
-      batch: {multicall: true} 
+      batch: { multicall: true },
     })
 
     const erc20Address = this.config.destinationToken
@@ -249,7 +305,7 @@ export class UniversalDeposits {
     const initialBalance = await contract.read.balanceOf([this.config.destinationAddress])
     console.log('Initial balance is:', initialBalance)
     const eventTarget = new EventTarget()
-    eventTarget.addEventListener("onAssetReceived", onAssetReceived)
+    eventTarget.addEventListener('onAssetReceived', onAssetReceived)
     const id = setInterval(async () => {
       try {
         // const balance = 0n
@@ -257,7 +313,7 @@ export class UniversalDeposits {
         // console.log('Checking balance')
         if (balance !== initialBalance) {
           console.log('Balance changed, sending event')
-          const event = new CustomEvent("onAssetReceived")
+          const event = new CustomEvent('onAssetReceived')
           eventTarget.dispatchEvent(event)
           clearInterval(id)
         }
@@ -267,58 +323,59 @@ export class UniversalDeposits {
     }, this.config.checkIntervalMs || 1500)
   }
 
-  async watchSettle({ onSettleCalled }: {onSettleCalled: EventListenerOrEventListenerObject}) {
+  async watchSettle({ onSettleCalled }: { onSettleCalled: EventListenerOrEventListenerObject }) {
     const address = this.getUDSafeAddress()
     const transferEventAbi = parseAbiItem(
-      'event Transfer(address indexed from, address indexed to, uint256 value)'
+      'event Transfer(address indexed from, address indexed to, uint256 value)',
     )
     for (let url of this.config.urls as string[]) {
       const client = createPublicClient({ transport: http(url) })
       const chainId = await client.getChainId()
-      
+
       const eventTarget = new EventTarget()
-      eventTarget.addEventListener("onSettleCalled", onSettleCalled)
+      eventTarget.addEventListener('onSettleCalled', onSettleCalled)
       const erc20Address = UniversalDeposits.USDC_MAPPING[chainId] as `0x${string}`
       const unwatch = client.watchEvent({
         address: erc20Address, // ERC-20 token address
         event: transferEventAbi,
         args: {
-          from: [this.getUDSafeAddress()]
+          from: [this.getUDSafeAddress()],
         },
         onLogs: () => {
-          const event = new CustomEvent("onSettleCalled", { detail: { chainId, token: erc20Address } })
+          const event = new CustomEvent('onSettleCalled', {
+            detail: { chainId, token: erc20Address },
+          })
           eventTarget.dispatchEvent(event)
-        }
+        },
       })
     }
   }
 
   watchDeployment(feedback: DeploymentFeedback) {
-    if (this.config.urls?.length === 0) 
+    if (this.config.urls?.length === 0)
       throw new Error('Please provide to monitor the safe address')
 
     const checkIntervalMs = this.config.checkIntervalMs ? this.config.checkIntervalMs : 3000
-    const clear = (_intervalId: number) => clearInterval(_intervalId) 
     const eventTarget = new EventTarget()
 
-    
-    let checkOnGoing: { [key:string]: boolean } = {}
     let intervalIds: NodeJS.Timeout[] = []
 
     const checkContractDeployment = async (
       client: PublicClient,
-      address: Address, 
-      eventTarget: EventTarget, 
+      address: Address,
+      eventTarget: EventTarget,
       eventName: string,
-      intervalIdsIndex: number
+      intervalIdsIndex: number,
     ) => {
       const chainId = await client.getChainId()
       try {
         const bytecode = await client.getBytecode({ address })
         if (bytecode) {
-          eventTarget.dispatchEvent(new CustomEvent(eventName, { 
-            detail: { chainId } 
-          }))
+          eventTarget.dispatchEvent(
+            new CustomEvent(eventName, {
+              detail: { chainId },
+            }),
+          )
           clearInterval(intervalIds[intervalIdsIndex])
         }
       } catch (e) {
@@ -327,37 +384,37 @@ export class UniversalDeposits {
     }
 
     const eventsMapping: EventMapping = {
-      "onLogicDeploy": {
+      onLogicDeploy: {
         callback: feedback.onLogicDeploy,
-        address: this.getSafeModuleLogicAddress()
+        address: this.getSafeModuleLogicAddress(),
       },
-      "onProxyDeploy": {
+      onProxyDeploy: {
         callback: feedback.onProxyDeploy,
-        address: this.getSafeModuleProxyAddress()
+        address: this.getSafeModuleProxyAddress(),
       },
-      "onSafeDeploy": {
+      onSafeDeploy: {
         callback: feedback.onSafeDeploy,
-        address: this.getUDSafeAddress()
+        address: this.getUDSafeAddress(),
       },
     }
 
     let i = 0
     for (let url of this.config.urls as string[]) {
       const client = createPublicClient({
-        transport: http(url)
+        transport: http(url),
       })
       for (let eventName in eventsMapping) {
         eventTarget.addEventListener(eventName, eventsMapping[eventName].callback)
         const id = setInterval(
-          checkContractDeployment, 
+          checkContractDeployment,
           checkIntervalMs,
           client,
           eventsMapping[eventName].address,
           eventTarget,
           eventName,
-          i
+          i,
         )
-        intervalIds.push(id)  
+        intervalIds.push(id)
         i++
       }
     }
