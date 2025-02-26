@@ -17,12 +17,20 @@ const {
   encodePacked,
   decodeEventLog,
   decodeAbiParameters,
+  zeroAddress,
 } = require('viem')
+const { OrderKind, OrderBalance, computeOrderUid } = require('@cowprotocol/contracts')
 const { monitorFile } = require('./lib/monitor-file')
 const { UniversalDeposits } = require('@universal-deposits/sdk')
 const { privateKeyToAccount } = require('viem/accounts')
 const { logger } = require('./lib/get-logger')
-const { OrderBookApi, OrderCreation, OrderPostError } = require('@cowprotocol/cow-sdk')
+const {
+  OrderBookApi,
+  OrderCreation,
+  OrderPostError,
+  SigningScheme,
+} = require('@cowprotocol/cow-sdk')
+const { MetadataApi } = require('@cowprotocol/app-data')
 const {
   composableCoWAbi,
   safeModuleProxyAbi,
@@ -347,18 +355,70 @@ const maybeSubmitCoWOrder = async ({ publicClient, receipt, safe }) => {
     )
 
     try {
-      const x = await publicClient.readContract({
-        composableCow,
+      const [order, signature] = await publicClient.readContract({
+        address: composableCow,
         abi: composableCoWAbi,
         functionName: 'getTradeableOrderWithSignature',
         args: [safe, decodedLog.args.params, '0x', []],
       })
 
-      // FIXME: fails because balance is withdrawn from the solves and the sellAmount isn't valid anymore
-      // through getTradeableOrder (see the revert 'invalid amount')
-      // This should continue by submitting the order to orders api
+      const kindToString = _kind =>
+        _kind === '0xf3b277728b3fee749481eb3e0b3b48980dbbab78658fc419025cb16eee346775'
+          ? OrderKind.SELL
+          : OrderKind.BUY
+
+      const balanceToString = _balance => {
+        if (_balance === '0x5a28e9363bb942b639270062aa6bb295f434bcdfc42c97267bf003f272060dc9') {
+          return OrderBalance.ERC20
+        } else if (
+          _balance === '0xabee3b73373acd583a130924aad6dc38cfdc44ba0555ba94ce2ff63980ea0632'
+        ) {
+          return OrderBalance.EXTERNAL
+        } else if (
+          _balance === '0x4ac99ace14ee0a5ef932dc609df0943ab7ac16b7583634612f8dc35a4289a6ce'
+        ) {
+          return OrderBalance.INTERNAL
+        } else {
+          throw new Error(`Unknown balance type: ${balance}`)
+        }
+      }
+
+      const getOrderUid = (chainId, orderToSubmit, owner) => {
+        return computeOrderUid(
+          {
+            name: 'Gnosis Protocol',
+            version: 'v2',
+            chainId: chainId,
+            verifyingContract: '0x9008D19f58AAbD9eD0D60971565AA8510560ab41', // GPV2SETTLEMENT
+          },
+          {
+            ...orderToSubmit,
+            receiver: orderToSubmit.receiver === zeroAddress ? undefined : orderToSubmit.receiver,
+          },
+          owner,
+        )
+      }
+
+      const orderToSubmit = {
+        ...order,
+        buyAmount: order.buyAmount.toString(),
+        sellAmount: order.sellAmount.toString(),
+        feeAmount: order.feeAmount.toString(),
+        kind: kindToString(order.kind),
+        signature,
+        signingScheme: SigningScheme.EIP1271,
+        from: safe,
+        sellTokenBalance: balanceToString(order.sellTokenBalance),
+        buyTokenBalance: balanceToString(order.buyTokenBalance),
+      }
+
+      const chainId = await publicClient.getChainId()
+      logger.info('  Expected order uid: ', getOrderUid(chainId, orderToSubmit, safe))
+      const orderBookApi = new OrderBookApi({ chainId })
+      const orderUid = await orderBookApi.sendOrder(orderToSubmit)
+      logger.info('  Order sent, uid:', orderUid)
     } catch (err) {
-      logger.error(err.details)
+      logger.error(err)
     }
   } else {
     logger.debug('No CoW event orders found in the event logs')
@@ -451,7 +511,7 @@ const maybeDeployUDSafes = R.curry(async (_config, _tokensAccountBalances) => {
       }
 
       let protocolFee = 0
-      if (entry.token !== destinationToken || _config.originChainId !== destinationChain) {
+      if (_config.originChainId !== destinationChain) {
         protocolFee = await getGlobalFixedNativeFee({ publicClient })
       }
       logger.info('  Protocol fee', protocolFee)
@@ -516,6 +576,7 @@ process.on('unhandledRejection', _error => {
   logger.error('General error:', _error)
   logger.info('Intervals cleared!')
   logger.info('Resuming in 5s...')
+  logger.debug('IGNORED_SAFES_LIST', IGNORED_SAFES_LIST)
   setTimeout(main, 5000, CONFIG)
 })
 
