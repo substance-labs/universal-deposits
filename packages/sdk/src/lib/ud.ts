@@ -205,38 +205,6 @@ export class UniversalDeposits {
     return toHex(toBytes(hash).slice(12))
   }
 
-  async watchTokenTransfer({
-    onBalanceChange,
-  }: {
-    onBalanceChange: EventListenerOrEventListenerObject
-  }) {
-    const address = this.getUDSafeAddress()
-    const transferEventAbi = parseAbiItem(
-      'event Transfer(address indexed from, address indexed to, uint256 value)',
-    )
-    for (let url of this.config.urls as string[]) {
-      const client = createPublicClient({ transport: http(url) })
-      const chainId = await client.getChainId()
-
-      const eventTarget = new EventTarget()
-      eventTarget.addEventListener('onBalanceChange', onBalanceChange)
-      const erc20Address = UniversalDeposits.USDC_MAPPING[chainId] as `0x${string}`
-      const unwatch = client.watchEvent({
-        address: erc20Address, // ERC-20 token address
-        event: transferEventAbi,
-        args: {
-          to: [this.getUDSafeAddress()],
-        },
-        onLogs: () => {
-          const event = new CustomEvent('onBalanceChange', {
-            detail: { chainId, token: erc20Address },
-          })
-          eventTarget.dispatchEvent(event)
-        },
-      })
-    }
-  }
-
   // FIXME: shortcut, create instea a more general
   // watch event accepting the tokens to watch as a
   // parameter
@@ -247,37 +215,73 @@ export class UniversalDeposits {
     url: string
     onBalanceChange: EventListenerOrEventListenerObject
   }) {
-    const address = this.getUDSafeAddress()
-    const transferEventAbi = parseAbiItem(
-      'event Transfer(address indexed from, address indexed to, uint256 value)',
-    )
-
-    const client = createPublicClient({ transport: http(url) })
-    const chainId = await client.getChainId()
-
-    if (chainId.toString() !== this.config.destinationChain) {
-      console.log(
-        'Error: Invalid URL for `watchDestinationTokenTransfer`, expected chain id:',
-        this.config.destinationChain,
-      )
-    }
-
-    const eventTarget = new EventTarget()
-    eventTarget.addEventListener('onBalanceChange', onBalanceChange)
-    const erc20Address = UniversalDeposits.EURE_MAPPING[chainId] as `0x${string}`
-    client.watchEvent({
-      address: erc20Address, // ERC-20 token address
-      event: transferEventAbi,
-      args: {
-        to: [this.getUDSafeAddress()],
-      },
-      onLogs: () => {
-        const event = new CustomEvent('onBalanceChange', {
-          detail: { chainId, token: erc20Address },
-        })
-        eventTarget.dispatchEvent(event)
-      },
+    const universalSafe = this.getUDSafeAddress()
+    const client = createPublicClient({
+      transport: http(url),
+      batch: { multicall: true },
     })
+
+    const chainId = await client.getChainId()
+    const erc20Address = this.config.destinationToken
+    const token = getContract({ address: erc20Address, abi: erc20Abi, client })
+    const initBalance = await token.read.balanceOf([universalSafe])
+    console.log(`${chainId}: initBalance: ${initBalance}`)
+    const eventTarget = new EventTarget()
+    eventTarget.addEventListener('onBalanceChanged', onBalanceChange)
+    const id = setInterval(async () => {
+      try {
+        // console.log(`${chainId} checking balance...`)
+        const balance = await token.read.balanceOf([universalSafe])
+        if (balance !== initBalance) {
+          console.log(`${chainId}: Balance changed, sending event`)
+          const event = new CustomEvent('onBalanceChanged', {
+            detail: { chainId, token: erc20Address },
+          })
+          eventTarget.dispatchEvent(event)
+          clearInterval(id)
+        }
+      } catch (e) {
+        console.log('ERROR when checking balance:')
+      }
+    }, 2000)
+  }
+
+  async watchTokenTransfer({
+    onBalanceChange,
+  }: {
+    onBalanceChange: EventListenerOrEventListenerObject
+  }) {
+    const universalSafe = this.getUDSafeAddress()
+    for (let url of this.config.urls as string[]) {
+      const client = createPublicClient({
+        transport: http(url),
+        batch: { multicall: true },
+      })
+
+      const chainId = await client.getChainId()
+      const erc20Address = UniversalDeposits.USDC_MAPPING[chainId] as Address
+      const token = getContract({ address: erc20Address, abi: erc20Abi, client })
+      const initBalance = await token.read.balanceOf([universalSafe])
+      console.log(`${chainId}: initBalance: ${initBalance}`)
+      const eventTarget = new EventTarget()
+      eventTarget.addEventListener('onBalanceChanged', onBalanceChange)
+      const id = setInterval(async () => {
+        try {
+          // console.log(`${chainId} checking balance...`)
+          const balance = await token.read.balanceOf([universalSafe])
+          if (balance !== initBalance) {
+            console.log(`${chainId}: Balance changed, sending event`)
+            const event = new CustomEvent('onBalanceChanged', {
+              detail: { chainId, token: erc20Address },
+            })
+            eventTarget.dispatchEvent(event)
+            clearInterval(id)
+          }
+        } catch (e) {
+          console.log('ERROR when checking balance:')
+        }
+      }, 2000)
+    }
   }
 
   async watchAssetReceived({
