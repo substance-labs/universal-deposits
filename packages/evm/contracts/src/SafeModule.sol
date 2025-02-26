@@ -21,6 +21,7 @@ interface TokenWithDecimals {
 }
 
 contract SafeModule is OwnableUpgradeable, UUPSUpgradeable, BaseConditionalOrder {
+    error OrderFailed(string);
     error AutoSettlementDisabled();
     string public constant NAME = 'Universal Deposits Module';
     string public constant VERSION = '0.1.1';
@@ -143,12 +144,16 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable, BaseConditionalOrder
             abi.encodePacked(uint8(0), token, uint256(0), transferCalldata.length, transferCalldata)
         );
 
-        IModuleManager(safe).execTransactionFromModule(
+        bool success = IModuleManager(safe).execTransactionFromModule(
             SAFE_MULTISEND, // address to,
             0, // uint256 value,
             abi.encodeWithSignature('multiSend(bytes)', txs), // bytes calldata data,
             Enum.Operation.DelegateCall // Enum.Operation operation,
         );
+
+        if (!success) {
+            revert OrderFailed('Failed to transfer the token');
+        }
     }
 
     function _placeDeBridgeOrder(address safe, address token) internal {
@@ -210,12 +215,16 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable, BaseConditionalOrder
             revert('Failed to send ETH to safe');
         }
 
-        IModuleManager(safe).execTransactionFromModule(
+        success = IModuleManager(safe).execTransactionFromModule(
             SAFE_MULTISEND, // address to,
             0, // uint256 value,
             abi.encodeWithSignature('multiSend(bytes)', txs), // bytes calldata data,
             Enum.Operation.DelegateCall // Enum.Operation operation,
         );
+
+        if (!success) {
+            revert OrderFailed('Failed to transfer the token');
+        }
     }
 
     function _placeCoWOrder(address safe, address token) internal {
@@ -268,12 +277,16 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable, BaseConditionalOrder
             )
         );
 
-        IModuleManager(safe).execTransactionFromModule(
+        bool success = IModuleManager(safe).execTransactionFromModule(
             SAFE_MULTISEND, // address to,
             0, // uint256 value,
             abi.encodeWithSignature('multiSend(bytes)', txs), // bytes calldata data,
             Enum.Operation.DelegateCall // Enum.Operation operation,
         );
+
+        if (!success) {
+            revert OrderFailed('Failed to transfer the token');
+        }
 
         emit PrintOrder(orderData);
     }
