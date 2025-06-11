@@ -3,13 +3,29 @@
   "private": true,
   "version": "1.0.0",
   "description": "Universal Deposits SDK",
-  "main": "./dist/index.js",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "exports": {
+    ".": {
+      "require": "./dist/index.cjs",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "license": "MIT",
   "scripts": {
     "compile": "tsc",
-    "build": "esbuild src/index.ts --bundle --minify --sourcemap --outfile=out.min.js && cp -v out.min.js* ../app/public/",
+    "prebuild": "node scripts/copy-abis.js",
+    "build": "node scripts/copy-abis.js && tsc && esbuild src/index.ts --bundle --minify --sourcemap --outfile=dist/index.mjs --format=esm && esbuild src/index.ts --bundle --minify --sourcemap --outfile=dist/index.cjs --format=cjs && cp -v dist/index.mjs* ../app/public/ && echo 'SDK built and copied to app/public directory'",
     "prettier:check": "npx prettier -c \"**/*.{js,ts,md,sol,json,yml,yaml}\"",
-    "prettier:fix": "npx prettier -w \"**/*.{js,ts,md,sol,json,yml,yaml}\""
+    "prettier:fix": "npx prettier -w \"**/*.{js,ts,md,sol,json,yml,yaml}\"",
+    "test:getName": "tsx index.ts",
+    "test:quote": "tsx test-quotes.js",
+    "example": "tsx examples/basic-usage.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.19.0",
@@ -18,9 +34,17 @@
     "eslint-config-prettier": "^10.0.1",
     "globals": "^15.14.0",
     "prettier": "^3.4.2",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.19.4",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.21.0",
     "viem": "^2.22.15"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@lifi/sdk": "^3.7.7",
+    "axios": "^1.9.0"
+  },
+  "peerDependencies": {
+    "viem": "^2.0.0"
+  }
 }

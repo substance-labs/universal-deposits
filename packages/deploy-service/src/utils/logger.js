@@ -1,7 +1,10 @@
+import { config } from 'dotenv'
+import path from 'path'
+import log4js from 'log4js'
+
 const envPath = process.env.ENV_PATH
-require('dotenv').config({ path: envPath || '.env' })
-const path = require('path')
-const log4js = require('log4js')
+config({ path: envPath || '.env' })
+
 const appName = path.basename(envPath, path.extname(envPath)).replace('.', '') || '.env'
 const pattern = `[${appName}][%p][%d{yyyy-MM-dd|hh:mm:ss}] %m`
 
@@ -20,15 +23,15 @@ log4js.configure({
       numBackups: 10,
       layout: { type: 'pattern', pattern },
     },
-    "only-info": {
-      type: "logLevelFilter",
-      appender: "file",
-      level: "info"
-    }
+    'only-info': {
+      type: 'logLevelFilter',
+      appender: 'file',
+      level: 'info',
+    },
   },
   categories: {
     default: { appenders: ['only-info', 'console'], level: 'debug' },
   },
 })
 
-module.exports.logger = log4js.getLogger()
+export const logger = log4js.getLogger()
