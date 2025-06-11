@@ -1,14 +1,12 @@
 # Universal Deposits
 
-A cross-chain protocol that allows users to deposit tokens on any supported chain and have them arrive at a specified destination address, potentially on a different chain and in a different token.
-
 ## Overview
 
 Universal Deposits creates deterministic safe addresses that can receive tokens from any supported chain. When tokens are deposited, the system can automatically:
 
 1. Forward the tokens to a destination address on the same chain
 2. Swap the tokens to a different token on the same chain (via CoW Protocol)
-3. Bridge the tokens to a different chain (via DLN - Distributed Liquidity Network)
+3. Bridge the tokens to a different chain
 
 ## Architecture
 
@@ -21,9 +19,9 @@ Contains the Solidity smart contracts that power the Universal Deposits system:
 - **SafeModule.sol**: Core contract that handles:
   - Token transfers (same token, same chain)
   - Token swaps via CoW Protocol (different token, same chain)
-  - Cross-chain transfers via DLN (any token, different chain)
-- Uses CREATE2 for deterministic contract deployment
-- Integrates with Safe smart accounts (formerly Gnosis Safe)
+  - Cross-chain transfers (any token, different chain)
+- Uses CREATE2 for deterministic contract deployment for Safe Proxy address (Universal address)
+- Integrates with Safe smart accounts
 - Implements UUPS proxy pattern for upgradeability
 
 ### @universal-deposits/sdk
@@ -31,8 +29,7 @@ Contains the Solidity smart contracts that power the Universal Deposits system:
 TypeScript library for interacting with the Universal Deposits system:
 
 - Address derivation (calculating deterministic addresses)
-- Contract deployment monitoring
-- Event monitoring (watching for token transfers and settlements)
+- Quote query and aggregation
 - Integration with viem for blockchain interactions
 
 ### @universal-deposits/deploy-service
@@ -40,10 +37,14 @@ TypeScript library for interacting with the Universal Deposits system:
 Service that monitors and manages Universal Deposits:
 
 - Monitors token balances in Universal Deposit safes
-- Automatically deploys contracts when needed
+- Automatically deploys contracts when needed (Safe Module Proxy & Logic, Safe Proxy)
 - Executes settlements when tokens are detected
-- Submits CoW Protocol orders for token swaps
-- Configures cross-chain bridges for DLN transfers
+- Detects the settlement status on destination chain
+
+### @universal-deposits/api
+
+- API logic for app to interact with
+- Allows users to registers UD address, get quote, get order
 
 ### @universal-deposits/app
 
@@ -66,17 +67,20 @@ graph TD
 
         Settlement -->|Same chain, same token| DirectTransfer[Direct Transfer]
         Settlement -->|Same chain, different token| CoWSwap[CoW Protocol Swap]
-        Settlement -->|Different chain| DLNBridge[DLN Cross-Chain Bridge]
+        Settlement -->|Different chain| Bridge[Cross-Chain Bridge]
 
         DirectTransfer -->|Transfers tokens| Destination[Destination Address]
         CoWSwap -->|Swaps and transfers| Destination
-        DLNBridge -->|Bridges and transfers| Destination
+        Bridge -->|Bridges and transfers| Destination
     end
 ```
 
 ## Component Interaction
 
+### TODO: update
+
 ```mermaid
+
 sequenceDiagram
     participant User
     participant App
@@ -127,7 +131,7 @@ sequenceDiagram
 - Safe smart accounts for custody of funds
 - UUPS proxy pattern for contract upgradeability
 - Integrates with CoW Protocol for token swaps
-- Integrates with DLN for cross-chain transfers
+- Integrates with DLN, LiFi, Relay for cross-chain transfers
 - Written in TypeScript (SDK and services) and Solidity (contracts)
 
 ## How It Works for Users
@@ -159,6 +163,19 @@ Alice has USDC on Arbitrum and wants to fund her Gnosis Pay account with EURe.
    - Bridges her USDC from Arbitrum to Gnosis Chain
    - Swaps it for EURe
    - Sends the EURe to her Gnosis Pay address
+
+#### Scenario 2: Withdraw from CEX
+
+Bob has USDC on Coinbase and wants to withdraw to Gnosis Chain with USDCe. Since Coinbase doesn't support withdrawing to Gnosis Chain at the moment, Bob could withdraw the USDC on his account to Base chain to the UD Safe address.
+
+1. Bob specify the recipient address, and recipient token on Gnosis Chain.
+2. Bob gets the UD Safe address.
+3. Bob initiates withdrawal on Coinbase and paste the UD Safe address as `Withdraw to` address, and Base as the chain.
+4. Once the withdrawal from Coinbase is completed, the system automatically:
+   - Detects his deposit
+   - Bridges his USDC from Base to Gnosis Chain
+   - Swap USDC to USDCe
+   - Sends USDCe to his recipient address
 
 #### Scenario 2: Polygon User
 
@@ -198,8 +215,8 @@ graph TD
     subgraph "Universal Deposits System"
         UDSafes[Universal Deposit Safes]
         DeployService[Deployment Service]
-        Bridge[deBridge/Near Intent]
-        Swap[CoW Protocol/Near Intent]
+        Bridge[Cross-chain bridges]
+        Swap[CoW Protocol]
     end
 
     subgraph "Destination"
@@ -236,32 +253,13 @@ yarn install
 yarn workspaces run build
 ```
 
-### Configuration
-
-Create a `.env` file in the root directory:
-
-```
-# Chain Configuration
-ORIGIN_CHAIN=8453
-DESTINATION_CHAIN=100
-DESTINATION_TOKEN=0xcB444e90D8198415266c6a2724b7900fb12FC56E // EURe
-
-# API Configuration
-URL=https://rpc.ankr.com/gnosis
-BROADCAST=true
-CHECK_FREQUENCY=1000
-
-# Service Configuration
-PATH_ADDRESSES=./addresses.txt
-PATH_TOKENS=./tokens.txt
-PRIVATE_KEY=your_private_key_here
-```
-
 ### Running the Service
 
 ```bash
 cd packages/deploy-service
-ENV_PATH=.env node src/index.js
+cp .env.example .env
+source .env
+yarn start
 ```
 
 ## Contributing
