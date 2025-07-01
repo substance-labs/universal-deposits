@@ -20,7 +20,7 @@
   "scripts": {
     "compile": "tsc",
     "prebuild": "node scripts/copy-abis.js",
-    "build": "node scripts/copy-abis.js && tsc && esbuild src/index.ts --bundle --minify --sourcemap --outfile=dist/index.mjs --format=esm && esbuild src/index.ts --bundle --minify --sourcemap --outfile=dist/index.cjs --format=cjs && cp -v dist/index.mjs* ../app/public/ && echo 'SDK built and copied to app/public directory'",
+    "build": "tsc && esbuild src/index.ts --bundle --minify --sourcemap --outfile=dist/index.mjs --format=esm && esbuild src/index.ts --bundle --minify --sourcemap --outfile=dist/index.cjs --format=cjs",
     "prettier:check": "npx prettier -c \"**/*.{js,ts,md,sol,json,yml,yaml}\"",
     "prettier:fix": "npx prettier -w \"**/*.{js,ts,md,sol,json,yml,yaml}\"",
     "test:getName": "tsx index.ts",

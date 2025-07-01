@@ -10,8 +10,8 @@
     "dev": "nodemon src/index.js"
   },
   "dependencies": {
-    "@universal-deposits/sdk":"*",
     "@universal-deposits/constants": "*",
+    "@universal-deposits/sdk": "*",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
@@ -19,9 +19,9 @@
     "joi": "^17.11.0",
     "mongodb": "^6.3.0",
     "redis": "^4.6.13",
-    "viem": "^1.19.13",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
+    "viem": "^1.19.13",
     "winston": "^3.11.0"
   },
   "devDependencies": {

@@ -8,7 +8,7 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 
 # Copy package.json and yarn.lock from root directory
-COPY package.json yarn.lock ./
+COPY package.json yarn.lock .yarnrc.yml ./
 
 # Copy the packages
 COPY packages/constants ./packages/constants
@@ -16,8 +16,15 @@ COPY packages/sdk ./packages/sdk
 COPY packages/api ./packages/api
 COPY packages/app ./packages/app
 
+RUN corepack enable
+
 # Install dependencies
-RUN yarn install --frozen-lockfile
+RUN yarn install 
+
+
+# Build the sdk
+WORKDIR /app/packages/sdk
+RUN yarn build
 
 # Build the app
 WORKDIR /app/packages/app

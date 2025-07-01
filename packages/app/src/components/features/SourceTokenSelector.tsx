@@ -1,9 +1,8 @@
 import React, { useState, useMemo } from 'react'
-import { BigNumber } from 'ethers'
 import { Card, Select, Input } from '@/components/ui'
 import { useUserTokenBalancesAllChains, getTokenMetadata } from '@/hooks/useUserTokenListBalances'
 import { useWallet } from '@/hooks/useWallet'
-import { formatUnits } from 'ethers/lib/utils'
+import { formatUnits } from 'viem'
 
 import { chains } from '@universal-deposits/constants'
 
@@ -12,7 +11,7 @@ interface ChainBalance {
   chainName: string
   tokenAddress: string
   tokenSymbol: string
-  balance: BigNumber
+  balance: bigint
   decimals: number
 }
 

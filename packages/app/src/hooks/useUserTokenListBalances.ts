@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query'
-import { BigNumber } from 'ethers'
 import { allowListToken, gnosisChainToken, tokens } from '@universal-deposits/constants'
 
 const ALCHEMY_API_KEY = (import.meta as any).env.VITE_ALCHEMY_API_KEY || ''
@@ -78,13 +77,13 @@ export const useUserTokenListBalances = ({
     queryKey: ['tokenUserBalances', userAddress, chainId],
     queryFn: async () => {
     try {
-      if (!userAddress || !ALCHEMY_API_KEY) return {} as Record<string, BigNumber>
+      if (!userAddress || !ALCHEMY_API_KEY) return {} as Record<string, bigint>
       
       // Only proceed if this chain has allowed tokens
       const allowedAddresses = getAllowedTokenAddresses(chainId)
       if (allowedAddresses.length === 0) {
         console.log('No allowed tokens for chain:', chainId)
-        return {} as Record<string, BigNumber>
+        return {} as Record<string, bigint>
       }
 
       const body = JSON.stringify({
@@ -112,13 +111,13 @@ export const useUserTokenListBalances = ({
       }
 
       const tokenBalances = data.result.tokenBalances
-      const balances: Record<string, BigNumber> = {}
+      const balances: Record<string, bigint> = {}
 
       tokenBalances.forEach((token: { contractAddress: string; tokenBalance: string }) => {
-        const balance = BigNumber.from(token.tokenBalance)
+        const balance = token.tokenBalance
         // Only include tokens with balance > 0 and in our allowed list
-        if (!balance.isZero() && allowedAddresses.includes(token.contractAddress.toLowerCase())) {
-          balances[token.contractAddress.toLowerCase()] = balance
+        if (BigInt(balance) > 0n && allowedAddresses.includes(token.contractAddress.toLowerCase())) {
+          balances[token.contractAddress.toLowerCase()] = BigInt(balance)
         }
       })
 
@@ -129,7 +128,7 @@ export const useUserTokenListBalances = ({
         chainId,
         userAddress,
       })
-      return {} as Record<string, BigNumber>
+      return {} as Record<string, bigint>
     }
     },
     enabled: !!userAddress && !!ALCHEMY_API_KEY,
@@ -160,7 +159,7 @@ export const useUserTokenBalancesAllChains = ({
     queryKey: ['tokenUserBalancesAllChains', userAddress],
     queryFn: async () => {
       console.log('🚀 Starting balance fetch for all chains')
-      const balancesByChain: Record<number, Record<string, BigNumber>> = {}
+      const balancesByChain: Record<number, Record<string, bigint>> = {}
       
       // Fetch balances for each supported chain
       await Promise.all(
@@ -215,12 +214,12 @@ export const useUserTokenBalancesAllChains = ({
 
             const tokenBalances = data.result.tokenBalances
             console.log(`🪙 Token balances for chain ${chainId}:`, tokenBalances)
-            const chainBalances: Record<string, BigNumber> = {}
+            const chainBalances: Record<string, bigint> = {}
 
             tokenBalances.forEach((token: { contractAddress: string; tokenBalance: string }) => {
-              const balance = BigNumber.from(token.tokenBalance)
-              console.log(`💰 Token ${token.contractAddress} balance: ${token.tokenBalance} (isZero: ${balance.isZero()}, isAllowed: ${allowedAddresses.includes(token.contractAddress.toLowerCase())})`)
-              if (!balance.isZero() && allowedAddresses.includes(token.contractAddress.toLowerCase())) {
+              const balance = BigInt(token.tokenBalance)
+              console.log(`💰 Token ${token.contractAddress} balance: ${token.tokenBalance} (isZero: ${balance === 0n}, isAllowed: ${allowedAddresses.includes(token.contractAddress.toLowerCase())})`)
+              if (balance > 0n && allowedAddresses.includes(token.contractAddress.toLowerCase())) {
                 chainBalances[token.contractAddress.toLowerCase()] = balance
                 console.log(`✅ Added token ${token.contractAddress} to balances`)
               }
