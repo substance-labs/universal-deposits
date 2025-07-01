@@ -1,0 +1,775 @@
+openapi: 3.0.3
+info:
+  title: Universal Deposits API
+  description: API service for Universal Deposits cross-chain transfer system
+  version: 0.1.0
+  contact:
+    name: Universal Deposits Team
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3002/api
+    description: Development server
+  - url: https://api.universaldeposits.com/api
+    description: Production server
+
+paths:
+  /health:
+    get:
+      summary: Health check endpoint
+      description: Returns the current health status of the API
+      tags:
+        - Health
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  uptime:
+                    type: number
+                    example: 3600.123
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: '2024-01-01T12:00:00.000Z'
+                  environment:
+                    type: string
+                    example: development
+
+  /ud-address:
+    get:
+      summary: Get Universal Deposit Safe address
+      description: Returns a Universal Deposit Safe address based on destination parameters
+      tags:
+        - Safe Addresses
+      parameters:
+        - name: destinationToken
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: Destination token contract address (must be a valid Ethereum address)
+          example: '0xA0b86a33E6441b8b8dD31d4A8e8ec9EE48a2b2B8'
+        - name: destinationChain
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Destination chain ID
+          example: 100
+        - name: destinationAddress
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: Recipient address on destination chain (must be a valid Ethereum address)
+          example: '0x742d35Cc6634C0532925a3b8D46C2B2B8E7A7a7e'
+      responses:
+        '200':
+          description: Universal Deposit Safe address and parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UDSafeAddressResponse'
+        '400':
+          description: Bad request - invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many requests - rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /order/orderId/{orderId}:
+    get:
+      summary: Get order by ID
+      description: Retrieves a specific order using its unique order ID
+      tags:
+        - Orders
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{64}$'
+          description: The unique order ID hash
+          example: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef'
+      responses:
+        '200':
+          description: Successful order retrieval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Invalid order ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /order:
+    get:
+      summary: Get order by parameters
+      description: Retrieves an order by matching specific cross-chain transfer parameters
+      tags:
+        - Orders
+      parameters:
+        - name: sourceChainToken
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The token address on the source chain
+          example: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+        - name: sourceChainUD
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The user address on the source chain
+          example: '0x742d35Cc6634C0532925a3b8D46C2B2B8E7A7a7e'
+        - name: sourceChainId
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Chain ID of the source blockchain
+          example: 1
+        - name: destinationChainToken
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The token address on the destination chain
+          example: '0xA0b86a33E6441b8b8dD31d4A8e8ec9EE48a2b2B8'
+        - name: destinationChainAddress
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The user address on the destination chain
+          example: '0x742d35Cc6634C0532925a3b8D46C2B2B8E7A7a7e'
+        - name: destinationChainId
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Chain ID of the destination blockchain
+          example: 100
+      responses:
+        '200':
+          description: Successful order retrieval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Invalid input parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Order not found with the specified parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /order-id:
+    get:
+      summary: Generate deterministic order ID hash
+      description: Generates a deterministic hash that can be used as an order ID based on cross-chain transfer parameters
+      tags:
+        - Orders
+      parameters:
+        - name: sourceChainToken
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The token address on the source chain
+          example: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+        - name: sourceChainUD
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The user address on the source chain
+          example: '0x742d35Cc6634C0532925a3b8D46C2B2B8E7A7a7e'
+        - name: sourceChainId
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Chain ID of the source blockchain
+          example: 1
+        - name: destinationChainToken
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The token address on the destination chain
+          example: '0xA0b86a33E6441b8b8dD31d4A8e8ec9EE48a2b2B8'
+        - name: destinationChainAddress
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The user address on the destination chain
+          example: '0x742d35Cc6634C0532925a3b8D46C2B2B8E7A7a7e'
+        - name: destinationChainId
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Chain ID of the destination blockchain
+          example: 100
+      responses:
+        '200':
+          description: Successfully generated order ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderIdResponse'
+        '400':
+          description: Invalid input parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /order/recipient/{recipientAddress}:
+    get:
+      summary: Get order by recipient address
+      description: Retrieves an order by the recipient address. Note that if multiple orders exist for the same recipient address, this endpoint returns one of them
+      tags:
+        - Orders
+      parameters:
+        - name: recipientAddress
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The recipient address to search for in orders
+          example: '0x742d35Cc6634C0532925a3b8D46C2B2B8E7A7a7e'
+      responses:
+        '200':
+          description: Successfully retrieved order by recipient address
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Bad request - error querying order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Order not found with the given recipient address
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /quote:
+    get:
+      summary: Get bridge quote for cross-chain transfer
+      description: Returns the best quote for a cross-chain token transfer
+      tags:
+        - Bridge
+      parameters:
+        - name: sourceChainToken
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The token address on the source chain
+          example: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+        - name: sourceChainUD
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The user address on the source chain
+          example: '0x742d35Cc6634C0532925a3b8D46C2B2B8E7A7a7e'
+        - name: sourceChainId
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Chain ID of the source blockchain
+          example: 1
+        - name: destinationChainToken
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The token address on the destination chain
+          example: '0xA0b86a33E6441b8b8dD31d4A8e8ec9EE48a2b2B8'
+        - name: destinationChainAddress
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The user address on the destination chain
+          example: '0x742d35Cc6634C0532925a3b8D46C2B2B8E7A7a7e'
+        - name: destinationChainId
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Chain ID of the destination blockchain
+          example: 100
+        - name: amount
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9]+$'
+          description: Amount to send in wei (as a numeric string)
+          example: '1000000000000000000'
+      responses:
+        '200':
+          description: Successful quote response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuoteResponse'
+        '400':
+          description: Invalid input or quote error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /safe-deployed:
+    get:
+      summary: Check if Safe contracts are deployed on source chain
+      description: Verifies whether the Universal Deposits Safe contracts (UDSafe, SafeModuleLogic, and SafeModuleProxy) are properly deployed on the specified source chain
+      tags:
+        - Safe Contracts
+      parameters:
+        - name: sourceChainId
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Chain ID of the source blockchain where Safe contracts should be checked
+          example: 1
+        - name: destinationChainToken
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The token address on the destination chain
+          example: '0xA0b86a33E6441b8b8dD31d4A8e8ec9EE48a2b2B8'
+        - name: destinationChainAddress
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The user address on the destination chain
+          example: '0x742d35Cc6634C0532925a3b8D46C2B2B8E7A7a7e'
+        - name: destinationChainId
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Chain ID of the destination blockchain
+          example: 100
+      responses:
+        '200':
+          description: Safe contracts deployment status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SafeDeployedResponse'
+        '400':
+          description: Bad request - invalid parameters or unsupported chain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error - Safe deployment check failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /register-address:
+    post:
+      summary: Register user address
+      description: Registers a user address for a given chain and token
+      tags:
+        - Address
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterAddressRequest'
+      responses:
+        '200':
+          description: Address successfully registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterAddressResponse'
+        '400':
+          description: Bad request (e.g. validation error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    UDSafeAddressResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            udSafeAddress:
+              type: string
+              pattern: '^0x[a-fA-F0-9]{40}$'
+              description: The Universal Deposit Safe address
+              example: '0x1234567890abcdef1234567890abcdef12345678'
+            destinationToken:
+              type: string
+              pattern: '^0x[a-fA-F0-9]{40}$'
+              description: Destination token address
+              example: '0xA0b86a33E6441b8b8dD31d4A8e8ec9EE48a2b2B8'
+            destinationChain:
+              type: integer
+              description: Destination chain ID
+              example: 100
+            destinationAddress:
+              type: string
+              pattern: '^0x[a-fA-F0-9]{40}$'
+              description: Destination recipient address
+              example: '0x742d35Cc6634C0532925a3b8D46C2B2B8E7A7a7e'
+
+    OrderResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            orderId:
+              type: string
+              pattern: '^0x[a-fA-F0-9]{64}$'
+              description: The unique order identifier
+              example: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef'
+            sourceChainToken:
+              type: string
+              pattern: '^0x[a-fA-F0-9]{40}$'
+              description: Source chain token address
+              example: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+            sourceChainUD:
+              type: string
+              pattern: '^0x[a-fA-F0-9]{40}$'
+              description: Source chain user address
+              example: '0x742d35Cc6634C0532925a3b8D46C2B2B8E7A7a7e'
+            sourceChainId:
+              type: integer
+              description: Source chain ID
+              example: 1
+            destinationChainToken:
+              type: string
+              pattern: '^0x[a-fA-F0-9]{40}$'
+              description: Destination chain token address
+              example: '0xA0b86a33E6441b8b8dD31d4A8e8ec9EE48a2b2B8'
+            destinationChainAddress:
+              type: string
+              pattern: '^0x[a-fA-F0-9]{40}$'
+              description: Destination chain recipient address
+              example: '0x742d35Cc6634C0532925a3b8D46C2B2B8E7A7a7e'
+            destinationChainId:
+              type: integer
+              description: Destination chain ID
+              example: 100
+            status:
+              type: string
+              description: Current status of the order
+              example: 'pending'
+            amount:
+              type: string
+              description: Transfer amount in wei
+              example: '1000000000000000000'
+            settleUrl:
+              type: string
+              description: Settlement URL (only present when status is 'Completed')
+              example: 'https://api.universaldeposits.com/settle/0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef'
+            createdAt:
+              type: string
+              format: date-time
+              description: Timestamp when the order was created
+              example: '2024-01-01T12:00:00.000Z'
+            updatedAt:
+              type: string
+              format: date-time
+              description: Timestamp when the order was last updated
+              example: '2024-01-01T12:30:00.000Z'
+
+    OrderIdResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            orderId:
+              type: string
+              pattern: '^0x[a-fA-F0-9]{64}$'
+              description: The generated order ID hash
+              example: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef'
+            hash:
+              type: string
+              pattern: '^0x[a-fA-F0-9]{64}$'
+              description: The hash value (same as orderId)
+              example: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef'
+
+    QuoteResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            bridge:
+              type: string
+              description: The bridge service used
+              example: 'hop'
+            tool:
+              type: string
+              description: The specific bridge tool
+              example: 'hop-mainnet'
+            inputAmount:
+              type: string
+              description: Input amount in wei
+              example: '1000000000000000000'
+            expectedOutput:
+              type: string
+              description: Expected output amount in wei
+              example: '990000000000000000'
+            slippage:
+              type: string
+              description: Slippage percentage
+              example: '0.5'
+            estimatedGas:
+              type: string
+              description: Estimated gas cost
+              example: '100000'
+            executionTime:
+              type: string
+              description: Estimated execution time
+              example: '30 seconds'
+            approvalRequired:
+              type: boolean
+              description: Whether token approval is required
+              example: true
+            approvalAddress:
+              type: string
+              pattern: '^0x[a-fA-F0-9]{40}$'
+              description: Address for token approval
+              example: '0x1234567890abcdef1234567890abcdef12345678'
+
+    SafeDeployedResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            isDeployed:
+              type: boolean
+              description: Whether all required Safe contracts are deployed
+              example: true
+            contracts:
+              type: object
+              properties:
+                udSafe:
+                  type: object
+                  properties:
+                    address:
+                      type: string
+                      pattern: '^0x[a-fA-F0-9]{40}$'
+                      description: Address of the UDSafe contract
+                      example: '0x1234567890abcdef1234567890abcdef12345678'
+                    hasCode:
+                      type: boolean
+                      description: Whether the contract has bytecode deployed
+                      example: true
+                safeModuleLogic:
+                  type: object
+                  properties:
+                    address:
+                      type: string
+                      pattern: '^0x[a-fA-F0-9]{40}$'
+                      description: Address of the SafeModuleLogic contract
+                      example: '0x2345678901abcdef234567890abcdef123456789'
+                    hasCode:
+                      type: boolean
+                      description: Whether the contract has bytecode deployed
+                      example: true
+                safeModuleProxy:
+                  type: object
+                  properties:
+                    address:
+                      type: string
+                      pattern: '^0x[a-fA-F0-9]{40}$'
+                      description: Address of the SafeModuleProxy contract
+                      example: '0x3456789012abcdef34567890abcdef1234567890'
+                    hasCode:
+                      type: boolean
+                      description: Whether the contract has bytecode deployed
+                      example: true
+
+    RegisterAddressRequest:
+      type: object
+      required:
+        - destinationAddress
+      properties:
+        destinationAddress:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{40}$'
+          description: The user's wallet address
+          example: '0x742d35Cc6634C0532925a3b8D46C2B2B8E7A7a7e'
+        destinationChain:
+          type: integer
+          minimum: 1
+          description: The chain ID the address belongs to (default to Gnosis Chain ID)
+          example: 100
+        destinationToken:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{40}$'
+          description: Token associated with the registration (optional)
+          example: '0xA0b86a33E6441b8b8dD31d4A8e8ec9EE48a2b2B8'
+
+    RegisterAddressResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: 'Address registered successfully'
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+              description: Error message
+            code:
+              type: string
+              description: Error code
+            details:
+              type: object
+              description: Additional error details
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: Safe Addresses
+    description: Universal Deposit Safe address operations
+  - name: Orders
+    description: Order management and retrieval
+  - name: Bridge
+    description: Cross-chain bridge quotes
+  - name: Safe Contracts
+    description: Safe contract deployment status
+  - name: Address
+    description: Address registration operations

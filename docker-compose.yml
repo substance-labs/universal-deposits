@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: universal-deposits-mongodb
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - universal-deposits-network
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7.2-alpine
+    container_name: universal-deposits-redis
+    volumes:
+      - redis_data:/data
+    networks:
+      - universal-deposits-network
+    restart: unless-stopped
+
+  # API Service
+  api:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+    container_name: universal-deposits-api
+    ports:
+      - '3000:3000'
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGODB_URI=mongodb://mongodb:27017/universal-deposits
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - universal-deposits-network
+    restart: unless-stopped
+
+  # Deploy Service
+  deploy-service:
+    build:
+      context: .
+      dockerfile: packages/deploy-service/Dockerfile
+    container_name: universal-deposits-deploy-service
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/universal-deposits
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - universal-deposits-network
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  universal-deposits-network:
+    driver: bridge

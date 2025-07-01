@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@cowprotocol/cow-sdk": "^5.10.1-RC.0",
+    "@universal-deposits/constants": "0.1.0",
     "@universal-deposits/sdk": "1.0.0",
     "mongodb": "^6.3.0",
     "redis": "^5.1.0",

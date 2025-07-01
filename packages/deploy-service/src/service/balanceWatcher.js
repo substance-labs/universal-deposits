@@ -1,26 +1,20 @@
-import { createClient } from 'redis'
 import { createPublicClient, http, keccak256, encodePacked, erc20Abi } from 'viem'
-import { allowListToken } from '../utils/constants.js'
+import { allowListToken } from '@universal-deposits/constants'
 import * as chains from 'viem/chains'
 import { multiChainClient } from '../utils/multiChainClient.js'
 import { UniversalDeposits } from '@universal-deposits/sdk'
+import { databaseManager } from '../utils/databaseManager.js'
+import { getServiceLogger } from '../utils/logger.js'
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'
-// TODO: fix
 const DESTINATION_CHAIN_ID = 100
-const DESTINATION_TOKEN = '0xcB444e90D8198415266c6a2724b7900fb12FC56E'
 
 class BalanceWatcher {
   constructor(config = {}) {
-    this.interval = config.interval || process.env.INTERVAL || 30000 // 30 seconds default
-    this.redisSubscriber = createClient({ url: REDIS_URL })
-    this.redisPublisher = createClient({ url: REDIS_URL })
-    this.redisDatabaseClient = createClient({ url: REDIS_URL })
+    this.interval = config.interval || process.env.INTERVAL || 30000 // 30 seconds
     this.publicClients = {}
     this.isRunning = false
-    this.mongoInitialized = false
-    this.redisQueueInitialized = false
-    this.subscriberInitialized = false
+    this.databaseInitialized = false
+    this.logger = getServiceLogger('balanceWatcher')
 
     this.chainMap = Object.values(chains).reduce((acc, chain) => {
       acc[chain.id] = chain
@@ -29,115 +23,29 @@ class BalanceWatcher {
   }
 
   async initializeDatabases() {
-    if (!this.mongoInitialized) {
-      const { mongoDBClient } = await import('../utils/mongoClient.js')
-      await mongoDBClient.connect()
-      this.mongoInitialized = true
-      console.log('MongoDB initialized for BalanceWatcher')
-    }
-
-    if (!this.redisQueueInitialized) {
-      const { redisQueueManager } = await import('../utils/redisQueue.js')
-      await redisQueueManager.connect()
-      this.redisQueueInitialized = true
-      console.log('Redis queue initialized for BalanceWatcher')
-    }
-
-    if (!this.subscriberInitialized) {
-      await this.setupRedisSubscriber()
-      this.subscriberInitialized = true
-      console.log('Redis subscriber initialized for BalanceWatcher')
+    if (!this.databaseInitialized) {
+      await databaseManager.initialize()
+      this.databaseInitialized = true
+      this.logger.info('Databases initialized for BalanceWatcher')
     }
 
     try {
       const privateKey = process.env.DEPLOYER_PRIVATE_KEY
       if (privateKey && !multiChainClient.supportedChainIds?.length) {
-        console.log('Initializing multi-chain clients for balance watching...')
+        this.logger.info('Initializing multi-chain clients for balance watching...')
         await multiChainClient.initialize(privateKey)
-        console.log(
+        this.logger.info(
           `Initialized balance watch clients for chains: ${multiChainClient.getSupportedChainIds().join(', ')}`,
         )
       }
     } catch (error) {
-      console.warn('Failed to initialize multi-chain clients for balance watching:', error.message)
+      this.logger.warn(
+        'Failed to initialize multi-chain clients for balance watching:',
+        error.message,
+      )
     }
   }
 
-  // Set up Redis subscriber to listen for address changes
-  async setupRedisSubscriber() {
-    try {
-      if (!this.redisSubscriber.isOpen) {
-        console.log('Connecting Redis subscriber client...')
-
-        this.redisSubscriber.on('error', err => {
-          console.log('Redis Subscriber Error:', err)
-          // Try to reconnect if connection is lost
-          if (!this.redisSubscriber.isOpen && this.subscriberInitialized) {
-            console.log('Redis subscriber disconnected, attempting to reconnect...')
-            this.subscriberInitialized = false
-            setTimeout(() => this.setupRedisSubscriber(), 5000)
-          }
-        })
-
-        // Set up reconnect handler
-        this.redisSubscriber.on('reconnect', () => {
-          console.log('Redis subscriber reconnected, reestablishing subscriptions...')
-          this.setupSubscriptions()
-        })
-
-        await this.redisSubscriber.connect()
-      }
-
-      await this.setupSubscriptions()
-
-      console.log('Successfully set up Redis subscriber')
-    } catch (error) {
-      console.log('Error setting up Redis subscriber:', error)
-      this.subscriberInitialized = false
-      // Try to reconnect after a delay
-      setTimeout(() => this.setupRedisSubscriber(), 5000)
-      throw error
-    }
-  }
-
-  // Handle subscriptions to Redis channels
-  async setupSubscriptions() {
-    try {
-      // Subscribe to the universal-deposits:changes channel
-      await this.redisSubscriber.subscribe('universal-deposits:changes', async message => {
-        console.log('Received message on Redis channel:', message)
-
-        if (message === 'address_added') {
-          console.log('New address detected, refreshing address list and checking balances...')
-          // Force a balance check with updated addresses
-          if (this.isRunning) {
-            try {
-              // Small delay to ensure Redis hash is updated before we read it
-              await new Promise(resolve => setTimeout(resolve, 100))
-
-              const balances = await this.readBalance()
-              if (Object.keys(balances).length > 0) {
-                console.log(
-                  'Non-zero balances found for new addresses:',
-                  JSON.stringify(balances, null, 2),
-                )
-                await this.storeBalances(balances)
-              } else {
-                console.log('No non-zero balances found for new addresses')
-              }
-            } catch (error) {
-              console.log('Error checking balances for new addresses:', error)
-            }
-          }
-        }
-      })
-
-      console.log('Successfully subscribed to Redis changes channel')
-    } catch (error) {
-      console.log('Error setting up Redis subscriptions:', error)
-      throw error
-    }
-  }
   getPublicClients = chainTokens => {
     const clients = {}
     Object.keys(chainTokens)
@@ -147,14 +55,14 @@ class BalanceWatcher {
         // Try to use multiChainClient if available
         if (multiChainClient.isChainSupported && multiChainClient.isChainSupported(chainId)) {
           clients[chainId] = multiChainClient.getPublicClient(chainId)
-          console.log(`Using shared public client for chain ${chainId}`)
+          this.logger.debug(`Using shared public client for chain ${chainId}`)
         } else {
           // Fall back to creating a new client
           clients[chainId] = createPublicClient({
             chain: this.chainMap[chainId],
             transport: http(),
           })
-          console.log(`Created new public client for chain ${chainId}`)
+          this.logger.debug(`Created new public client for chain ${chainId}`)
         }
       })
 
@@ -163,44 +71,20 @@ class BalanceWatcher {
 
   setupRedisWatcher = async () => {
     try {
-      // Ensure Redis database client is connected
-      if (!this.redisDatabaseClient.isOpen) {
-        this.redisDatabaseClient.on('error', err => {
-          console.log('Redis Database Client Error:', err)
-        })
-
-        // Set up reconnect handler
-        this.redisDatabaseClient.on('reconnect', () => {
-          console.log('Redis database client reconnected')
-        })
-
-        await this.redisDatabaseClient.connect()
-      }
-
-      // Ensure Redis publisher client is connected
-      if (!this.redisPublisher.isOpen) {
-        this.redisPublisher.on('error', err => {
-          console.log('Redis Publisher Client Error:', err)
-        })
-
-        // Set up reconnect handler
-        this.redisPublisher.on('reconnect', () => {
-          console.log('Redis publisher client reconnected')
-        })
-
-        await this.redisPublisher.connect()
-      }
+      // Initialize database connection if needed
+      await this.initializeDatabases()
 
       // Fetch all addresses from the hash
-      const addresses = await this.redisDatabaseClient.hGetAll('universal-deposits:addresses')
+      const addresses = await databaseManager.readFromRedisHash('universal-deposits:addresses')
 
       if (Object.keys(addresses).length > 0) {
-        console.log(`Found ${Object.keys(addresses).length} addresses in Redis hash`)
+        this.logger.info(`Found ${Object.keys(addresses).length} addresses in Redis hash`)
       }
-
+      // struct
+      // {[address]: JSONStringify([universalDepositAddress, destinationToken])}
       return addresses
     } catch (error) {
-      console.log('Redis setup failed:', error)
+      this.logger.error('Redis setup failed:', error)
       throw error
     }
   }
@@ -215,7 +99,10 @@ class BalanceWatcher {
       })
       return balance
     } catch (error) {
-      console.log(`Error reading balance for ${walletAddress} on token ${tokenAddress}:`, error)
+      this.logger.error(
+        `Error reading balance for ${walletAddress} on token ${tokenAddress}:`,
+        error,
+      )
       return 0n
     }
   }
@@ -225,7 +112,7 @@ class BalanceWatcher {
       const addresses = await this.setupRedisWatcher()
 
       if (Object.keys(addresses).length === 0) {
-        console.log('No addresses found in Redis')
+        this.logger.info('No addresses found in Redis')
         return {}
       }
 
@@ -239,7 +126,7 @@ class BalanceWatcher {
         const publicClient = this.publicClients[chainIdNum]
 
         if (!publicClient) {
-          console.log(`No public client found for chain ${chainId}`)
+          this.logger.warn(`No public client found for chain ${chainId}`)
           continue
         }
 
@@ -250,20 +137,25 @@ class BalanceWatcher {
           const nonZeroBalances = []
 
           // Check balance for each address
-          // key: address, value: balance
+          //  key: address, value: JSONStringify([UD Safe, Destination token])
+
           for (const [key, value] of Object.entries(addresses)) {
             try {
-              const balance = await this.getTokenBalance(publicClient, tokenAddress, value)
+              const [udSafe, destinationToken] = JSON.parse(value)
+              const balance = await this.getTokenBalance(publicClient, tokenAddress, udSafe)
 
               if (balance > 0n) {
+                //  key: address, value: JSONStringify([UD Safe, Destination token])
+
                 nonZeroBalances.push({ [key]: value })
               }
             } catch (error) {
-              console.log(`Error checking balance for ${value} on chain ${chainId}:`, error)
+              this.logger.error(`Error checking balance for ${value} on chain ${chainId}:`, error)
             }
           }
 
           // Only add token to result if there are non-zero balances
+
           if (nonZeroBalances.length > 0) {
             result[chainId][tokenAddress] = nonZeroBalances
           }
@@ -274,31 +166,27 @@ class BalanceWatcher {
           delete result[chainId]
         }
       }
-
+      // A list of chains, with each tokens and balances w.r.t addresses
       return result
     } catch (error) {
-      console.log('Error in readBalance:', error)
+      this.logger.error('Error in readBalance:', error)
       return {}
     }
   }
 
   storeBalances = async balances => {
     try {
-      if (!this.redisDatabaseClient.isOpen) {
-        await this.redisDatabaseClient.connect()
-      }
-
       // Check if balances object is empty
       if (!balances || Object.keys(balances).length === 0) {
-        console.log('No balances to store (empty object)')
+        this.logger.debug('No balances to store (empty object)')
         return
       }
 
       const timestamp = Date.now()
       await this.initializeDatabases()
 
-      const { mongoDBClient } = await import('../utils/mongoClient.js')
-      const { redisQueueManager } = await import('../utils/redisQueue.js')
+      const mongoDBClient = databaseManager.getMongoClient()
+      const redisQueueManager = databaseManager.getRedisQueueManager()
 
       // Iterate through each chainId in balances
       for (const [chainId, chainBalances] of Object.entries(balances)) {
@@ -312,9 +200,6 @@ class BalanceWatcher {
           continue
         }
 
-        const balancesRedisKey = `universal-deposits:balances:${chainId}`
-        const ordersRedisKey = `universal-deposits:orders:${chainId}`
-
         // Store each token address as a field with its balance array as value
         for (const [tokenAddress, balanceArray] of Object.entries(chainBalances)) {
           // Only store if balanceArray is not empty
@@ -325,12 +210,18 @@ class BalanceWatcher {
             // Process each element in the balance array to create orders
             for (const balanceElement of balanceArray) {
               // Each element is an object with one key-value pair
-              for (const [recipientAddress, udAddress] of Object.entries(balanceElement)) {
+              for (const [recipientAddress, udAddressDestinationTokenArray] of Object.entries(
+                balanceElement,
+              )) {
+                const [udAddress, destinationToken] = JSON.parse(udAddressDestinationTokenArray)
                 // check if udAddress.code > 0
                 let status = 'Registered' // Set every new order as Registered
                 // TODO: also check for Safe Module address bytecode
                 if ((await publicClient.getCode({ address: udAddress })) > 0) {
+                  this.logger.debug(' The public client chain ID:', await publicClient.getChainId())
                   status = 'Deployed'
+                } else {
+                  this.logger.debug('Status is:', status)
                 }
 
                 // Create order ID using keccak256
@@ -343,7 +234,7 @@ class BalanceWatcher {
                       recipientAddress, // recipientAddress
                       udAddress, // udAddress
                       tokenAddress, // sourceToken
-                      DESTINATION_TOKEN, // destinationToken
+                      destinationToken, // destinationToken
                     ],
                   ),
                 )
@@ -352,7 +243,7 @@ class BalanceWatcher {
                 const existingOrder = await mongoDBClient.getOrder(orderIdHash)
 
                 // Create order value object
-                const orderValue = {
+                let orderValue = {
                   orderId: orderIdHash,
                   orderIdHash, // Store the hash as a separate field for easier querying
                   sourceChainId: parseInt(chainId),
@@ -360,7 +251,7 @@ class BalanceWatcher {
                   recipientAddress: recipientAddress,
                   udAddress: udAddress,
                   sourceToken: tokenAddress,
-                  destinationToken: DESTINATION_TOKEN,
+                  destinationToken: destinationToken,
                   status: status,
                   createdAt: new Date(),
                   updatedAt: new Date(),
@@ -370,51 +261,76 @@ class BalanceWatcher {
                   lastError: null,
                   retryCount: 0,
                 }
-
-                if (!existingOrder) {
-                  console.log('Adding new order to MongoDB:', orderIdHash)
-
-                  // Store in MongoDB as primary storage
-                  await mongoDBClient.storeOrder(orderValue)
-
-                  // Only queue for deployment if the status is 'Registered'
-                  // if (status === 'Registered') {
-                  // Add to deploy queue using Redis
-                  await redisQueueManager.addToDeployQueue(orderValue)
-                  console.log('Order added to deploy queue:', orderIdHash)
-                  // }
-                } else if (status == 'DeploymentFailed' && status.retryCount < 2) {
-                  await mongoDBClient.updateOrderStatus(orderIdHash, 'Registered')
-                } else if (status == 'Deployed') {
-                  // Update teh deplyment details struct by calling sdk
+                if (status == 'Deployed') {
                   let universalDepositInstance = new UniversalDeposits({
                     destinationAddress: recipientAddress,
-                    destinationToken: DESTINATION_TOKEN,
+                    destinationToken: destinationToken,
                     destinationChain: DESTINATION_CHAIN_ID,
                   })
-                  const deploymentDetailsProd = {
+                  const deploymentDetails = {
                     safeModuleLogic:
                       universalDepositInstance.getSafeModuleLogicParams().contractAddress,
                     safeModuleProxy:
                       universalDepositInstance.getSafeModuleProxyParams().contractAddress,
                     universalSafe: universalDepositInstance.getUDSafeParams().contractAddress,
                   }
+                  // update the deployedment details
+                  orderValue = { ...orderValue, deploymentDetails }
+                }
 
-                  await mongoDBClient.storeOrder({
-                    ...existingOrder,
-                    updatedAt: new Date(),
-                    deploymentDetails:
-                      process.env.MODE == 'dev' ? deployResult : deploymentDetailsProd,
-                  })
-                  // TODO: only when during restarting, the status is 'Deployed' , but not push to settle queue
-                  // fix: when the order is already settling, and the order status is not updated, it will add the same order into the queue
-                  // await redisQueueManager.addToSettleQueue(existingOrder)
+                if (!existingOrder) {
+                  this.logger.info('Adding new order to MongoDB:', orderIdHash)
+
+                  // Store in MongoDB as primary storage
+                  await mongoDBClient.storeOrder(orderValue)
+                  this.logger.debug('The status now:', status)
+
+                  // Only queue for deployment if the status is 'Registered'
+                  if (status === 'Registered') {
+                    await redisQueueManager.addToDeployQueue(orderValue)
+
+                    this.logger.info('Order added to deploy queue:', orderIdHash)
+                  } else if (status === 'Deployed') {
+                    // if ud Safe is already deployed, set to settle queue
+                    this.logger.info('Order added to settle queue:', orderIdHash)
+                    await redisQueueManager.addToSettleQueue(orderValue)
+                  }
+                  // }
+                } else if (status == 'DeploymentFailed' && status.retryCount < 2) {
+                  // Try again
+                  await mongoDBClient.updateOrderStatus(orderIdHash, 'Registered')
+                } else if (status == 'Deployed') {
+                  // If there is existing order, skip
+                  this.logger.debug(
+                    `Order already exists with same status: ${existingOrder.status} for orderId: ${orderIdHash}`,
+                  )
+
+                  // // Update the deplyment details struct by calling sdk
+                  // let universalDepositInstance = new UniversalDeposits({
+                  //   destinationAddress: recipientAddress,
+                  //   destinationToken: DESTINATION_TOKEN,
+                  //   destinationChain: DESTINATION_CHAIN_ID,
+                  // })
+                  // const deploymentDetailsProd = {
+                  //   safeModuleLogic:
+                  //     universalDepositInstance.getSafeModuleLogicParams().contractAddress,
+                  //   safeModuleProxy:
+                  //     universalDepositInstance.getSafeModuleProxyParams().contractAddress,
+                  //   universalSafe: universalDepositInstance.getUDSafeParams().contractAddress,
+                  // }
+                  // await mongoDBClient.storeOrder({
+                  //   ...existingOrder,
+                  //   updatedAt: new Date(),
+                  //   deploymentDetails:
+                  //     process.env.MODE == 'dev' ? deployResult : deploymentDetailsProd,
+                  // })
+                  // // TODO: only when during restarting, the status is 'Deployed' , but not push to settle queue
+                  // // fix: when the order is already settling, and the order status is not updated, it will add the same order into the queue
+                  // // await redisQueueManager.addToSettleQueue(existingOrder)
                 } else {
-                  console.log(
-                    'Order already exists with same status:',
-                    existingOrder.status,
-                    ' for orderId ',
-                    orderIdHash,
+                  // Settling || Settle || Verifying || Verify
+                  this.logger.debug(
+                    `Order already exists with same status: ${existingOrder.status} for orderId: ${orderIdHash}`,
                   )
                 }
               }
@@ -423,39 +339,134 @@ class BalanceWatcher {
         }
       }
 
-      console.log(`Stored balances and orders at ${new Date(timestamp).toISOString()}`)
+      this.logger.info(`Stored balances and orders at ${new Date(timestamp).toISOString()}`)
     } catch (error) {
-      console.log('Error storing balances:', error)
+      this.logger.error('Error storing balances:', error)
     }
   }
+
+  testWatchAndCreateOrder = async () => {
+    const redisQueueManager = databaseManager.getRedisQueueManager()
+
+    const addresses = await this.setupRedisWatcher()
+    await new Promise(resolve => setTimeout(resolve, 3000)) // wait to seconds
+
+    // Mode: dev
+    // manually add the registered address on Redis into the queue
+    if (process.env.MODE == 'dev') {
+      // for testing purpose, manually create the fake balance of the inserted token
+      // key: recipient address
+      // value: ud address
+      for (const [key, value] of Object.entries(addresses)) {
+        // Create order ID using keccak256
+        const orderIdHash = keccak256(
+          encodePacked(
+            ['uint256', 'uint256', 'address', 'address', 'address', 'address'],
+            [
+              BigInt(8453), // sourceChainId
+              BigInt(100), // destinationChainId
+              key, // recipientAddress
+              value, // udAddress
+              '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', // sourceToken: USDC on Base
+              '0xcB444e90D8198415266c6a2724b7900fb12FC56E', // destinationToken: EURe on Gnosis
+            ],
+          ),
+        )
+
+        const orderValue = {
+          orderId: orderIdHash,
+          orderIdHash, // Store the hash as a separate field for easier querying
+          sourceChainId: parseInt(8453),
+          destinationChainId: DESTINATION_CHAIN_ID,
+          recipientAddress: key,
+          udAddress: value,
+          sourceToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+          destinationToken: '0xcB444e90D8198415266c6a2724b7900fb12FC56E',
+          status: 'Registered',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          // Adding additional fields for tracking
+          deployedAt: null,
+          settledAt: null,
+          lastError: null,
+          retryCount: 0,
+        }
+
+        const mongoDBClient = databaseManager.getMongoClient()
+
+        // Store in MongoDB as primary storage
+        if (await mongoDBClient.getOrder(orderIdHash)) {
+          this.logger.debug('Already tracked it in the database')
+        } else {
+          this.logger.info('Adding new order to MongoDB:', orderIdHash)
+          await mongoDBClient.storeOrder(orderValue)
+
+          await redisQueueManager.addToDeployQueue(orderValue)
+          this.logger.info('Order added to deploy queue:', orderIdHash)
+        }
+
+        //  await this.redisDatabaseClient.del('universal-deposits:addresses')
+      }
+    }
+  }
+
   watchBalances = async () => {
     if (this.isRunning) {
-      console.log('Balance watcher is already running')
+      this.logger.info('Balance watcher is already running')
       return
     }
 
     this.isRunning = true
-    console.log(`Starting balance watcher with ${this.interval}ms interval`)
+    this.logger.info(`Starting balance watcher with ${this.interval}ms interval`)
 
-    const watch = async () => {
-      try {
-        console.log('Checking balances...')
-        const balances = await this.readBalance()
-
-        if (Object.keys(balances).length > 0) {
-          console.log('Non-zero balances found:', JSON.stringify(balances, null, 2))
-          await this.storeBalances(balances)
-        } else {
-          console.log('No non-zero balances found')
+    if (process.env.MODE == 'dev') {
+      const watch = async () => {
+        try {
+          this.logger.info('Checking balances in dev environment...')
+          await this.testWatchAndCreateOrder()
+        } catch (error) {
+          this.logger.error('Error in balance watch cycle:', error)
         }
-      } catch (error) {
-        console.log('Error in balance watch cycle:', error)
       }
+
+      await watch()
+
+      this.watchInterval = setInterval(watch, this.interval)
+    } else {
+      const watch = async () => {
+        try {
+          this.logger.info('Checking balances...')
+          // balances =
+          //   {
+          //     "10":{
+          //        "USDC_Address":[
+          //           {
+          //              "recipientAddress":jsonStringify([
+          //                 "UDSafe",
+          //                 "destinationToken"
+          //              ])
+          //           }
+          //        ]
+          //     }
+          //  }
+
+          const balances = await this.readBalance()
+
+          if (Object.keys(balances).length > 0) {
+            this.logger.info('Non-zero balances found:', JSON.stringify(balances, null, 2))
+            await this.storeBalances(balances)
+          } else {
+            this.logger.debug('No non-zero balances found')
+          }
+        } catch (error) {
+          this.logger.error('Error in balance watch cycle:', error)
+        }
+      }
+
+      await watch()
+
+      this.watchInterval = setInterval(watch, this.interval)
     }
-
-    await watch()
-
-    this.watchInterval = setInterval(watch, this.interval)
   }
 
   stopWatching = () => {
@@ -464,68 +475,45 @@ class BalanceWatcher {
       this.watchInterval = null
     }
     this.isRunning = false
-    console.log('Balance watcher stopped')
+    this.logger.info('Balance watcher stopped')
   }
 
   cleanup = async () => {
     this.stopWatching()
 
     try {
-      // Unsubscribe from Redis channels before disconnecting
-      if (this.redisSubscriber.isOpen) {
-        console.log('Unsubscribing from Redis channels...')
-        try {
-          await this.redisSubscriber.unsubscribe('universal-deposits:changes')
-          console.log('Successfully unsubscribed from Redis channels')
-        } catch (unsubError) {
-          console.log('Error unsubscribing from Redis channels:', unsubError)
-        }
-
-        console.log('Disconnecting Redis subscriber client...')
-        await this.redisSubscriber.destroy()
-      }
-
-      // Disconnect database client
-      if (this.redisDatabaseClient.isOpen) {
-        console.log('Disconnecting Redis database client...')
-        await this.redisDatabaseClient.destroy()
-      }
-
-      // Disconnect publisher client
-      if (this.redisPublisher.isOpen) {
-        console.log('Disconnecting Redis publisher client...')
-        await this.redisPublisher.destroy()
-      }
-
-      console.log('All Redis connections cleaned up successfully')
-
-      // Reset initialization flags
-      this.subscriberInitialized = false
-      this.redisQueueInitialized = false
+      await databaseManager.cleanup()
+      this.databaseInitialized = false
+      this.logger.info('All database connections cleaned up successfully')
     } catch (error) {
-      console.log('Error during cleanup:', error)
+      this.logger.error('Error during cleanup:', error)
     }
   }
 
   // Main run method
   async run() {
     try {
-      console.log('======================================')
-      console.log('STARTING BALANCE WATCHER SERVICE')
-      console.log('======================================')
-      console.log('Initializing database connections and Redis subscribers...')
+      this.logger.info('======================================')
+      this.logger.info('STARTING BALANCE WATCHER SERVICE')
+      this.logger.info('======================================')
+      this.logger.info('Initializing database connections...')
 
       // Initialize database connections first
       await this.initializeDatabases()
 
-      console.log('Starting balance watcher with MongoDB storage and Redis queues')
-      console.log('Redis subscription status:', this.subscriberInitialized ? 'ACTIVE' : 'INACTIVE')
-      console.log('Watching address changes on channel: universal-deposits:changes')
-      console.log('======================================')
+      // Dev: unlike the other service, balanceWatcher will continuously watch the redis address data instead of watching the address_added pub
+      // Setup Redis subscriptions for address_added
+      // only one time execution
+      // await this.setupSubscriptions()
+
+      this.logger.info('Starting balance watcher with MongoDB storage and Redis queues')
+      this.logger.info('Database status:', this.databaseInitialized ? 'ACTIVE' : 'INACTIVE')
+      this.logger.info('Watching address changes on channel: universal-deposits:changes')
+      this.logger.info('======================================')
 
       await this.watchBalances()
     } catch (error) {
-      console.log('Error starting balance watcher:', error)
+      this.logger.error('Error starting balance watcher:', error)
     }
   }
 }

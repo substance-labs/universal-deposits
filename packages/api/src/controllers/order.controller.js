@@ -10,28 +10,35 @@ import { orderParamsSchema, orderIdSchema } from '../schemas/validation.js'
 export const getOrderById = async (req, res, next) => {
   try {
     const { orderId } = req.params
-    console.log('ORderId ', orderId)
 
     // Get order from database
     const ordersCollection = getCollection('orders')
-    console.log('Orders ', ordersCollection)
+
     const order = await ordersCollection.findOne({ orderId })
 
     if (!order) {
       return next(ApiError.notFound(`Order with ID ${orderId} not found`, 'ORDER_NOT_FOUND'))
     }
 
+    // Prepare response data
+    const responseData = {
+      orderId: order.orderId,
+      status: order.status,
+      sourceChain: order.sourceChainId,
+      destinationChain: order.destinationChainId,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+    }
+
+    // Add settleUrl only when status is 'Completed'
+    if (order.status === 'Completed') {
+      responseData.settleUrl = order.settleUrl
+    }
+
     // Return response
     res.json({
       success: true,
-      data: {
-        orderId: order.orderId,
-        status: order.status,
-        sourceChain: order.sourceChainId,
-        destinationChain: order.destinationChainId,
-        createdAt: order.createdAt,
-        updatedAt: order.updatedAt,
-      },
+      data: responseData,
     })
   } catch (error) {
     next(ApiError.internal(`Error getting order: ${error.message}`, 'DATABASE_ERROR'))
@@ -71,17 +78,25 @@ export const getOrderByParams = async (req, res, next) => {
       return next(ApiError.notFound('Order not found with the given parameters', 'ORDER_NOT_FOUND'))
     }
 
+    // Prepare response data
+    const responseData = {
+      orderId: order.orderId,
+      status: order.status,
+      sourceChain: order.sourceChainId,
+      destinationChain: order.destinationChainId,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+    }
+
+    // Add settleUrl only when status is 'Completed'
+    if (order.status === 'Completed') {
+      responseData.settleUrl = order.settleUrl
+    }
+
     // Return response
     res.json({
       success: true,
-      data: {
-        orderId: order.orderId,
-        status: order.status,
-        sourceChain: order.sourceChainId,
-        destinationChain: order.destinationChainId,
-        createdAt: order.createdAt,
-        updatedAt: order.updatedAt,
-      },
+      data: responseData,
     })
   } catch (error) {
     next(ApiError.badRequest(`Error getting order: ${error.message}`, 'ORDER_QUERY_ERROR'))
@@ -111,22 +126,29 @@ export const getOrderByRecipientAddress = async (req, res, next) => {
 
     const order = await orderCursor.next()
 
-    console.log('The order ', order)
     if (!order) {
       return next(ApiError.notFound('Order not found with the given parameters', 'ORDER_NOT_FOUND'))
+    }
+
+    // Prepare response data
+    const responseData = {
+      orderId: order.orderId,
+      status: order.status,
+      sourceChain: order.sourceChainId,
+      destinationChain: order.destinationChainId,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+    }
+
+    // Add settleUrl only when status is 'Completed'
+    if (order.status === 'Completed') {
+      responseData.settleUrl = order.settleUrl
     }
 
     // Return response
     res.json({
       success: true,
-      data: {
-        orderId: order.orderId,
-        status: order.status,
-        sourceChain: order.sourceChainId,
-        destinationChain: order.destinationChainId,
-        createdAt: order.createdAt,
-        updatedAt: order.updatedAt,
-      },
+      data: responseData,
     })
   } catch (error) {
     next(ApiError.badRequest(`Error getting order: ${error.message}`, 'ORDER_QUERY_ERROR'))

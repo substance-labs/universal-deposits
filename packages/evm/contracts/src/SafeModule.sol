@@ -25,7 +25,7 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable, BaseConditionalOrder
     error AutoSettlementDisabled();
 
     string public constant NAME = "Universal Deposits Module";
-    string public constant VERSION = "0.1.2";
+    string public constant VERSION = "0.1.3";
 
     address internal constant COW_COMPOSABLE = 0xfdaFc9d1902f4e0b84f65F49f244b32b31013b74;
     address payable internal constant COW_SETTLEMENT = payable(0x9008D19f58AAbD9eD0D60971565AA8510560ab41);
@@ -89,6 +89,7 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable, BaseConditionalOrder
         );
     }
 
+    // TODO: replace COW order with offchain quote and onchain calldata
     function getTradeableOrder(
         address owner,
         address sender,
@@ -152,8 +153,8 @@ contract SafeModule is OwnableUpgradeable, UUPSUpgradeable, BaseConditionalOrder
             //                    of all encoded transactions are concatenated to form the input.
 
             //    enum Operation {
-            //     Call,
-            //     DelegateCall
+            //     Call, // 0
+            //     DelegateCall  // 1
             // }
 
             bool success = IModuleManager(safe).execTransactionFromModule(

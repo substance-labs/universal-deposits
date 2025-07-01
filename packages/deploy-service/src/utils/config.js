@@ -17,7 +17,7 @@ const bridgeConfigs = [
   },
   {
     name: 'relay',
-    enabled: false,
+    enabled: true,
   },
 ]
 

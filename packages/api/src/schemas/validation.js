@@ -23,7 +23,7 @@ const chainId = Joi.number().integer().min(1).messages({
 export const udSafeAddressSchema = Joi.object({
   destinationToken: ethereumAddress.required(),
   destinationChain: chainId.required(),
-  destinationRecipient: ethereumAddress.required(),
+  destinationAddress: ethereumAddress.required(),
 })
   .required()
   .messages({
@@ -106,7 +106,7 @@ export const safeDeployedSchema = Joi.object({
 
 // Validation for register-address endpoint
 export const registerAddressSchema = Joi.object({
-  address: ethereumAddress.required(),
+  destinationAddress: ethereumAddress.required(),
   destinationToken: ethereumAddress.optional(),
   destinationChain: chainId.optional(),
 })

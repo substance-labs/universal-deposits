@@ -66,12 +66,12 @@ app.use('/api', quoteRoutes)
 app.use('/api', safeRoutes)
 app.use('/api', addressRoutes)
 
-// Serve static files from the "public" directory
-app.use(express.static(path.join(__dirname, '../../app/public')))
+// Serve static files from the Vite app build directory
+app.use(express.static(path.join(__dirname, '../../app/dist')))
 
 // For any other GET request, send the index.html
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../../app/public/index.html'))
+  res.sendFile(path.join(__dirname, '../../app/dist/index.html'))
 })
 
 // Error Handling

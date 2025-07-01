@@ -1,13 +1,10 @@
 import { getContract, keccak256 } from 'viem'
 import { UniversalDeposits } from '@universal-deposits/sdk'
-import {
-  CreateXAbi,
-  SafeProxyFactoryAbi,
-  SafeLogicAbi,
-  dlnSourceAbi,
-  SafeModuleLogicAbi,
-} from './abi.js'
-import { ADDRESSES } from './constants.js'
+import { CreateXAbi, SafeProxyFactoryAbi, SafeLogicAbi } from './abi.js'
+import { ADDRESSES } from '@universal-deposits/constants'
+import { getServiceLogger } from './logger.js'
+
+const logger = getServiceLogger('deployWorker')
 
 class UniversalDepositsDeploymentService {
   constructor(config) {
@@ -31,12 +28,12 @@ class UniversalDepositsDeploymentService {
       contractAddress: expected,
     } = this.universalDepositInstance.getUDSafeParams()
 
-    console.log('Deploy universal deposit address at ', expected)
+    logger.info('Deploy universal deposit address at:', expected)
 
     // Check if already deployed
     const code = await this.publicClient.getCode({ address: expected })
     if (code && code !== '0x') {
-      console.log('UD safe already deployed @', expected)
+      logger.info('UD safe already deployed @', expected)
       return expected
     }
 
@@ -60,7 +57,7 @@ class UniversalDepositsDeploymentService {
     )
 
     await this.publicClient.waitForTransactionReceipt({ hash })
-    console.log('Deploy UD Safe tx hash ', hash)
+    logger.info('Deploy UD Safe tx hash:', hash)
 
     // Verify module is enabled
     const moduleManager = getContract({
@@ -76,7 +73,7 @@ class UniversalDepositsDeploymentService {
       throw new Error('Module not enabled on Safe')
     }
 
-    console.log('UD address @', expected)
+    logger.info('UD address @', expected)
     return expected
   }
 
@@ -89,7 +86,7 @@ class UniversalDepositsDeploymentService {
 
     const code = await this.publicClient.getCode({ address: expectedSafeModuleLogicAddress })
     if (code && code !== '0x') {
-      console.log('SafeModule logic already deployed @', expectedSafeModuleLogicAddress)
+      logger.info('SafeModule logic already deployed @', expectedSafeModuleLogicAddress)
       return expectedSafeModuleLogicAddress
     }
 
@@ -106,7 +103,7 @@ class UniversalDepositsDeploymentService {
       args: [keccak256(salt), keccak256(initCode)],
     })
 
-    console.log('Expected safe module logic address by Create2 ', expectedSafeByCreateX)
+    logger.info('Expected safe module logic address by Create2:', expectedSafeByCreateX)
 
     const gas = await this.publicClient.estimateContractGas({
       address: ADDRESSES.CREATEX,
@@ -118,9 +115,9 @@ class UniversalDepositsDeploymentService {
 
     const hash = await createxContract.write.deployCreate2([salt, initCode], { gas })
     await this.publicClient.waitForTransactionReceipt({ hash })
-    console.log('Deploy Safe Module logic tx hash ', hash)
+    logger.info('Deploy Safe Module logic tx hash:', hash)
 
-    console.log('Logic deployed @', expectedSafeModuleLogicAddress)
+    logger.info('Logic deployed @', expectedSafeModuleLogicAddress)
     return expectedSafeModuleLogicAddress
   }
 
@@ -134,7 +131,7 @@ class UniversalDepositsDeploymentService {
     // Check if already deployed
     const code = await this.publicClient.getCode({ address: expectedSafeModuleProxyAddress })
     if (code && code !== '0x') {
-      console.log('SafeModule proxy already deployed @', expectedSafeModuleProxyAddress)
+      logger.info('SafeModule proxy already deployed @', expectedSafeModuleProxyAddress)
       return expectedSafeModuleProxyAddress
     }
 
@@ -153,25 +150,25 @@ class UniversalDepositsDeploymentService {
     })
 
     const hash = await createxContract.write.deployCreate2([salt, initCode], { gas })
-    console.log('Deploy SafeModuleProxy tx hash', hash)
+    logger.info('Deploy SafeModuleProxy tx hash:', hash)
     await this.publicClient.waitForTransactionReceipt({ hash })
 
-    console.log('Proxy deployed @', expectedSafeModuleProxyAddress)
+    logger.info('Proxy deployed @', expectedSafeModuleProxyAddress)
     return expectedSafeModuleProxyAddress
   }
 
   async run() {
-    console.log('CreateX @', ADDRESSES.CREATEX)
-    console.log('Deployer @', this.walletClient.account.address)
-    console.log('Destination address @', this.config.destinationAddress)
-    console.log('Destination chain @', this.config.destinationChain)
-    console.log('Destination token @', this.config.destinationToken)
+    logger.debug('CreateX @', ADDRESSES.CREATEX)
+    logger.debug('Deployer @', this.walletClient.account.address)
+    logger.debug('Destination address @', this.config.destinationAddress)
+    logger.debug('Destination chain @', this.config.destinationChain)
+    logger.debug('Destination token @', this.config.destinationToken)
 
     let safeModuleLogic = '0x00'
     let safeModuleProxy = '0x00'
     let universalSafe = '0x00'
     if (process.env.MODE == 'dev') {
-      console.log('mock: deploySafeModuleProxy function is called')
+      logger.debug('mock: deploySafeModuleProxy function is called')
     } else {
       safeModuleLogic = await this.deploySafeModuleLogic()
       safeModuleProxy = await this.deploySafeModuleProxy()
@@ -267,10 +264,10 @@ async function deployContractOnOriginChain(
 
   try {
     const result = await service.run(originTokenExchangeRate, originTokenAddress)
-    console.log('Deployment completed:', result)
+    logger.info('Deployment completed:', result)
     return result
   } catch (error) {
-    console.error('Deployment failed:', error)
+    logger.error('Deployment failed:', error)
     throw error
   }
 }

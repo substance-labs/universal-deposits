@@ -2,36 +2,39 @@ import { BalanceWatcher } from './service/balanceWatcher.js'
 import { DeployWorker } from './service/deployWorker.js'
 import { SettleWorker } from './service/settleWorker.js'
 import { CompletionVerifier } from './service/completionVerifier.js'
+import { getServiceLogger } from './utils/logger.js'
+
+const logger = getServiceLogger('main')
 
 const initializeServices = async () => {
   try {
     const { mongoDBClient } = await import('./utils/mongoClient.js')
     await mongoDBClient.connect()
-    console.log('MongoDB connected successfully')
+    logger.info('MongoDB connected successfully')
 
     const { redisQueueManager } = await import('./utils/redisQueue.js')
     await redisQueueManager.connect()
-    console.log('Redis queue manager connected successfully')
+    logger.info('Redis queue manager connected successfully')
 
     // Create and start services
     const balanceWatcher = new BalanceWatcher({
-      interval: process.env.INTERVAL, // Check every 5 seconds
+      interval: process.env.INTERVAL,
     })
 
     const deployWorker = new DeployWorker({
-      processInterval: process.env.INTERVAL, // Process queue every 5 seconds
+      processInterval: process.env.INTERVAL,
     })
 
     const settleWorker = new SettleWorker({
-      processInterval: process.env.INTERVAL, // Process queue every 5 seconds
+      processInterval: process.env.INTERVAL,
     })
 
     const completionVerifier = new CompletionVerifier({
-      processInterval: process.env.INTERVAL, // Process verification queue every 5 seconds
-      checkBalanceInterval: 15000, // Check balance every 15 seconds
+      processInterval: process.env.INTERVAL,
+      checkBalanceInterval: process.env.INTERVAL,
     })
 
-    console.log('Starting universal-deposits services...')
+    logger.info('Starting universal-deposits services...')
 
     await Promise.all([
       balanceWatcher.run(),
@@ -40,10 +43,10 @@ const initializeServices = async () => {
       completionVerifier.run(),
     ])
 
-    console.log('All services started successfully')
+    logger.info('All services started successfully')
 
     const shutdown = async () => {
-      console.log('Shutting down all services...')
+      logger.info('Shutting down all services...')
 
       try {
         await Promise.all([
@@ -56,10 +59,10 @@ const initializeServices = async () => {
         await mongoDBClient.disconnect()
         await redisQueueManager.destroy()
 
-        console.log('All services stopped successfully')
+        logger.info('All services stopped successfully')
         process.exit(0)
       } catch (error) {
-        console.error('Error during shutdown:', error)
+        logger.error('Error during shutdown:', error)
         process.exit(1)
       }
     }
@@ -75,7 +78,7 @@ const initializeServices = async () => {
       completionVerifier,
     }
   } catch (error) {
-    console.error('Error initializing services:', error)
+    logger.error('Error initializing services:', error)
     process.exit(1)
   }
 }
@@ -83,9 +86,9 @@ const initializeServices = async () => {
 // Start all services
 initializeServices()
   .then(services => {
-    console.log('Universal Deposits system running with MongoDB storage and Redis queues')
+    logger.info('Universal Deposits system running with MongoDB storage and Redis queues')
   })
   .catch(error => {
-    console.error('Failed to start services:', error)
+    logger.error('Failed to start services:', error)
     process.exit(1)
   })

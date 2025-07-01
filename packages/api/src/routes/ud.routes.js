@@ -35,7 +35,7 @@ const udSafeAddressLimiter = rateLimit({
  *           type: integer
  *         description: Destination chain ID
  *       - in: query
- *         name: destinationRecipient
+ *         name: destinationAddress
  *         required: true
  *         schema:
  *           type: string

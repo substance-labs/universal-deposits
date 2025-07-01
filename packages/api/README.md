@@ -35,24 +35,25 @@ REDIS_URL=redis://localhost:6379
 
 ### Core Endpoints
 
-| Method | Endpoint                                 | Description                               |
-| ------ | ---------------------------------------- | ----------------------------------------- |
-| GET    | `/api/ud-safe-address`                   | Get Universal Deposit Safe address        |
-| GET    | `/api/order/orderId/:orderId`            | Get order by ID                           |
-| GET    | `/api/order/recipient/:recipientAddress` | Get order by recipient address            |
-| GET    | `/api/order`                             | Get order by parameters                   |
-| GET    | `/api/quote`                             | Get bridge quote for cross-chain transfer |
-| GET    | `/api/order-id`                          | Generate deterministic order ID hash      |
-| GET    | `/api/safe-deployed`                     | Check if Safe contracts are deployed      |
-| POST   | `/api/register-address`                  | Register user address                     |
-| GET    | `/api/health`                            | Health check endpoint                     |
+| Method | Endpoint                                 | Description                                                   |
+| ------ | ---------------------------------------- | ------------------------------------------------------------- |
+| GET    | `/api/ud-address`                        | Get Universal Deposit Safe address                            |
+| GET    | `/api/order/orderId/:orderId`            | Get order by ID                                               |
+| GET    | `/api/order/recipient/:recipientAddress` | Get order by recipient address                                |
+| GET    | `/api/order/recipient/:recipientAddress` | Get order by recipient address (return all the orders) (TODO) |
+| GET    | `/api/order`                             | Get order by parameters                                       |
+| GET    | `/api/quote`                             | Get bridge quote for cross-chain transfer                     |
+| GET    | `/api/order-id`                          | Generate deterministic order ID hash                          |
+| GET    | `/api/safe-deployed`                     | Check if Safe contracts are deployed                          |
+| POST   | `/api/register-address`                  | Register user address                                         |
+| GET    | `/api/health`                            | Health check endpoint                                         |
 
 ### API Documentation
 
 The API is documented using OpenAPI/Swagger. Once the server is running, you can access the documentation at:
 
 ```
-http://localhost:3000/api-docs
+http://localhost:3001/api-docs
 ```
 
 This interactive documentation provides:

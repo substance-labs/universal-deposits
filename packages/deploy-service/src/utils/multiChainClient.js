@@ -1,9 +1,12 @@
 import { createWalletClient, createPublicClient, http } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import * as chains from 'viem/chains'
-import { allowListToken } from './constants.js'
+import { allowListToken } from '@universal-deposits/constants'
+import { getServiceLogger } from './logger.js'
 import dotenv from 'dotenv'
 dotenv.config()
+
+const logger = getServiceLogger('multiChain')
 
 // Create a map of chain IDs to chain objects
 const chainMap = Object.values(chains).reduce((acc, chain) => {
@@ -26,7 +29,7 @@ class MultiChainClient {
   async initialize(privateKey) {
     // Get all chain IDs from allowListToken
     this.supportedChainIds = Object.keys(allowListToken).map(Number)
-    console.log(`Initializing clients for chains: ${this.supportedChainIds.join(', ')}`)
+    logger.info(`Initializing clients for chains: ${this.supportedChainIds.join(', ')}`)
 
     if (!privateKey && process.env.PRIVATE_KEY) {
       privateKey = process.env.PRIVATE_KEY
@@ -37,7 +40,7 @@ class MultiChainClient {
     }
 
     const account = privateKeyToAccount(privateKey)
-    console.log(`Using account: ${account.address}`)
+    logger.info(`Using account: ${account.address}`)
 
     // Initialize clients for each chain
     for (const chainId of this.supportedChainIds) {
@@ -45,7 +48,7 @@ class MultiChainClient {
       const chain = chainMap[chainId]
 
       if (!chain) {
-        console.warn(`Chain with ID ${chainId} not found in viem chains, skipping`)
+        logger.warn(`Chain with ID ${chainId} not found in viem chains, skipping`)
         continue
       }
 
@@ -57,7 +60,7 @@ class MultiChainClient {
         rpcUrl = process.env[rpcEnvVar]
       } else {
         // Default RPC URL based on chain
-        console.warn(
+        logger.warn(
           `No RPC URL found for chain ${chainId} in environment (${rpcEnvVar}), using default`,
         )
 
@@ -84,8 +87,17 @@ class MultiChainClient {
           case 100:
             rpcUrl = 'https://rpc.gnosischain.com'
             break
+          case 130:
+            rpcUrl = process.env.URL_130 || 'https://unichain.drpc.org'
+            break
+          case 480:
+            rpcUrl = process.env.URL_480 || 'https://worldchain.drpc.org'
+            break
+          case 42220:
+            rpcUrl = process.env.URL_42220 || 'https://rpc.ankr.com/celo'
+            break
           default:
-            console.warn(`No default RPC URL for chain ${chainId}`)
+            logger.warn(`No default RPC URL for chain ${chainId}`)
             rpcUrl = process.env[`URL_${chainId}`]
         }
       }
@@ -102,9 +114,9 @@ class MultiChainClient {
           transport: http(rpcUrl),
         })
 
-        console.log(`Initialized clients for chain ${chainId} (${chain.name}) using RPC: ${rpcUrl}`)
+        logger.info(`Initialized clients for chain ${chainId} (${chain.name}) using RPC: ${rpcUrl}`)
       } catch (error) {
-        console.error(`Error initializing clients for chain ${chainId}:`, error)
+        logger.error(`Error initializing clients for chain ${chainId}:`, error)
       }
     }
 

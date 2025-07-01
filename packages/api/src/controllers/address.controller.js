@@ -5,22 +5,22 @@ import { registerAddressSchema } from '../schemas/validation.js'
 
 /**
  * Register user address
- * @route POST /api/register-address
+ * @route POST /register-address
  */
 export const registerAddress = async (req, res, next) => {
   try {
-    const { address, destinationToken, destinationChain } = req.body
-
-    // Use provided values or defaults
-    const DESTINATION_CHAIN = destinationChain || 100 // Gnosis Chain
-    const DESTINATION_TOKEN = destinationToken || '0xcb444e90d8198415266c6a2724b7900fb12fc56e' // EURe on Gnosis
+    console.log(req.body)
+    const { destinationAddress, destinationToken, destinationChain } = req.body
 
     // Generate universal deposit address
     const ud = new UniversalDeposits({
-      destinationAddress: address,
-      destinationToken: DESTINATION_TOKEN,
-      destinationChain: DESTINATION_CHAIN,
+      destinationAddress,
+      destinationToken: destinationToken
+        ? destinationToken
+        : '0xcb444e90d8198415266c6a2724b7900fb12fc56e',
+      destinationChain,
     })
+    console.log('Destination token ', destinationToken)
 
     const universalDepositParams = ud.getUDSafeParams()
     const universalDepositAddress = universalDepositParams.contractAddress
@@ -28,12 +28,20 @@ export const registerAddress = async (req, res, next) => {
     // Store in Redis
     const redisClient = getRedisClient()
 
-    // Add address to Redis hash
+    // // Add address to Redis hash
+    // await redisClient.hSet('universal-deposits:addresses', {
+    //   [address]: universalDepositAddress,
+    // })
+
+    // Add {recipient: string, JSON.stringify([universalDepositAddress, destinationToken]): string}
+    // const value = await redisClient.hGet('universal-deposits:addresses', address)
+    // const [universalDepositAddress, destinationToken] = JSON.parse(value)
     await redisClient.hSet('universal-deposits:addresses', {
-      [address]: universalDepositAddress,
+      [destinationAddress]: JSON.stringify([universalDepositAddress, destinationToken]),
     })
 
     // Publish change event
+    // TODO: remove as it is not used by balanceWatcher
     await redisClient.publish('universal-deposits:changes', 'address_added')
 
     // Return response
@@ -41,7 +49,7 @@ export const registerAddress = async (req, res, next) => {
       success: true,
       message: 'Address registered successfully',
       data: {
-        address,
+        destinationAddress,
         udAddress: universalDepositAddress,
         registeredAt: new Date().toISOString(),
       },

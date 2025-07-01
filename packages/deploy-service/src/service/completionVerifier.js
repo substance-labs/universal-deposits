@@ -1,165 +1,217 @@
-import { createClient } from 'redis'
-import { erc20Abi, createPublicClient } from 'viem'
-import * as chains from 'viem/chains'
-import { multiChainClient } from '../utils/multiChainClient.js'
+import { erc20Abi, createPublicClient, http } from 'viem'
+import { gnosis } from 'viem/chains'
+import { databaseManager } from '../utils/databaseManager.js'
+import { VERIFY_QUEUE, REDIS_ADDRESS_HASH_KEY } from '../utils/redisQueue.js'
+import { getServiceLogger } from '../utils/logger.js'
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'
-const VERIFY_QUEUE = 'universal-deposits:queue:verify'
+// Configuration constants
+const DEFAULT_PROCESS_INTERVAL = 5000 // 5 seconds
+const DEFAULT_BALANCE_CHECK_INTERVAL = 15000 // 15 seconds
+const DEFAULT_MAX_VERIFICATION_TIME = 10 * 60 * 1000 // 10 minutes
+const DEFAULT_MONITOR_LOCK_DURATION = 30 * 60 * 1000 // 30 minutes
+const DEFAULT_PROCESSING_LOCK_DURATION = 5 * 60 * 1000 // 5 minutes
+const MAX_RETRY_COUNT = 3
 
-// TODO: fix when 'relay' bridge is faster than the watch interval
-// example: https://www.relay.link/transaction/0xfbe2754afa2d55fe7fab1ad682df648b939051b316878e208a848e373bddf055
 class CompletionVerifier {
   constructor(config = {}) {
     this.name = 'completion-verifier'
-    this.redisSubscriber = createClient({ url: REDIS_URL })
-    this.redisPublisher = createClient({ url: REDIS_URL })
-    this.redisDatabaseClient = createClient({ url: REDIS_URL })
     this.isRunning = false
-    this.processInterval = config.processInterval || 5000 // Default: process queue every 5 seconds
-    this.checkBalanceInterval = config.checkBalanceInterval || 15000 // Default: check balance every 15 seconds
-    this.intervalId = null
-    this.balanceChecks = new Map() // Map to track ongoing balance checks
+    this.processInterval = config.processInterval || DEFAULT_PROCESS_INTERVAL
+    this.checkBalanceInterval = config.checkBalanceInterval || DEFAULT_BALANCE_CHECK_INTERVAL
+    this.maxVerificationTime =
+      config.maxVerificationTime ||
+      parseInt(process.env.MAX_VERIFICATION_TIME) ||
+      DEFAULT_MAX_VERIFICATION_TIME
 
-    // Create a map of chain IDs to chain objects
-    this.chainMap = Object.values(chains).reduce((acc, chain) => {
-      acc[chain.id] = chain
-      return acc
-    }, {})
+    this.intervalId = null
+    this.recoveryInterval = null
+    this.balanceChecks = new Map() // Map to track ongoing balance checks
+    this.databaseInitialized = false
+    this.logger = getServiceLogger('completionVerifier')
+
+    // Create public client for Gnosis chain
+    this.publicClient = createPublicClient({
+      chain: gnosis,
+      transport: http('https://rpc.gnosischain.com'),
+    })
+  }
+
+  _validateOrder(order) {
+    const requiredFields = ['orderId', 'destinationToken', 'recipientAddress']
+
+    for (const field of requiredFields) {
+      if (!order[field]) {
+        throw new Error(`Missing required field: ${field}`)
+      }
+    }
+
+    // Validate addresses
+    if (!/^0x[a-fA-F0-9]{40}$/.test(order.destinationToken)) {
+      throw new Error(`Invalid destination token address: ${order.destinationToken}`)
+    }
+
+    if (!/^0x[a-fA-F0-9]{40}$/.test(order.recipientAddress)) {
+      throw new Error(`Invalid recipient address: ${order.recipientAddress}`)
+    }
+  }
+
+  async initializeDatabases() {
+    if (!this.databaseInitialized) {
+      await databaseManager.initialize()
+      this.databaseInitialized = true
+      this.logger.info('Databases initialized for CompletionVerifier')
+    }
   }
 
   async verify(order) {
-    try {
-      console.log('Completion verifier processing order:', order.orderId)
+    let mongoDBClient
 
-      const { mongoDBClient } = await import('../utils/mongoClient.js')
+    try {
+      this.logger.info('Completion verifier processing order:', order.orderId)
+
+      // Validate order data
+      this._validateOrder(order)
+
+      await this.initializeDatabases()
+      mongoDBClient = databaseManager.getMongoClient()
+
+      // Get the most up-to-date order with proper error handling
+      const latestOrder = await mongoDBClient.getOrder(order.orderId)
+
+      // If order is already completed, just return
+      if (latestOrder && latestOrder.status === 'Completed') {
+        this.logger.info(`Order ${order.orderId} is already completed, skipping verification`)
+        return { status: 'Completed' }
+      }
+
+      // Update status to verifying
       await mongoDBClient.updateOrderStatus(order.orderId, 'Verifying')
 
-      // Start monitoring the recipient's balance on the destination chain
-      this.startBalanceMonitoring(order)
+      const orderToProcess = latestOrder
+
+      // Check if the order already has initialDestinationBalance recorded
+      if (orderToProcess.initialDestinationBalance) {
+        this.logger.info(
+          `Using existing initial balance for order ${order.orderId}: ${orderToProcess.initialDestinationBalance}`,
+        )
+        await this.startBalanceMonitoring(orderToProcess)
+      } else {
+        // Start monitoring the recipient's balance on the destination chain
+        await this.startBalanceMonitoring(orderToProcess)
+      }
 
       return { status: 'Verifying' }
     } catch (error) {
-      console.error('Error during completion verification setup:', error)
+      this.logger.error('Error during completion verification setup:', error)
 
-      const { mongoDBClient } = await import('../utils/mongoClient.js')
+      try {
+        if (!mongoDBClient) {
+          mongoDBClient = databaseManager.getMongoClient()
+        }
 
-      await mongoDBClient.updateOrderStatus(order.orderId, 'VerificationFailed')
+        await mongoDBClient.updateOrderStatus(order.orderId, 'VerificationFailed')
 
-      await mongoDBClient.storeOrder({
-        ...order,
-        status: 'VerificationFailed',
-        lastError: error.message || 'Unknown error during verification setup',
-        updatedAt: new Date(),
-      })
+        const retryCount = (order.retryCount || 0) + 1
+        await mongoDBClient.storeOrder({
+          ...order,
+          status: 'VerificationFailed',
+          lastError: error.message || 'Unknown error during verification setup',
+          retryCount,
+          updatedAt: new Date(),
+        })
+      } catch (dbError) {
+        this.logger.error('Error updating order status after verification failure:', dbError)
+      }
 
       throw error
     }
   }
 
   async startBalanceMonitoring(order) {
+    let redisQueueManager
+    let mongoDBClient
+    let monitorLockKey
+    let intervalId
+
     try {
-      // Check if we already have an active monitoring for this order
+      // Check if we already have active monitoring for this order
       if (this.balanceChecks.has(order.orderId)) {
-        console.log(`Balance monitoring already active for order ${order.orderId}`)
+        this.logger.info(`Balance monitoring already active for order ${order.orderId}`)
         return
       }
 
-      const publicClient = createPublicClient({
-        chain: gnosis,
-        transport: http('https://rpc.gnosischain.com'),
-      })
+      // Acquire a lock for this order's monitoring
+      redisQueueManager = databaseManager.getRedisQueueManager()
+      monitorLockKey = `monitor:${order.orderId}`
+      const lockAcquired = await redisQueueManager.acquireLock(
+        monitorLockKey,
+        DEFAULT_MONITOR_LOCK_DURATION,
+      )
 
-      const { mongoDBClient } = await import('../utils/mongoClient.js')
+      if (!lockAcquired) {
+        this.logger.info(
+          `Another worker is already monitoring order ${order.orderId}, skipping duplicate monitoring`,
+        )
+        return
+      }
 
-      // Get initial balance
+      // Get the appropriate public client for the destination chain
+
+      mongoDBClient = databaseManager.getMongoClient()
+
+      // Get initial balance with retry logic
       const tokenContract = {
         address: order.destinationToken,
         abi: erc20Abi,
         functionName: 'balanceOf',
         args: [order.recipientAddress],
       }
-      const initialBalance = await publicClient.readContract(tokenContract)
 
-      console.log(
-        `Initial balance for ${order.recipientAddress} on chain ${order.destinationChainId}: ${initialBalance}`,
-      )
-
-      // Store initial balance with the order
-      await mongoDBClient.storeOrder({
-        ...order,
-        initialDestinationBalance: initialBalance.toString(),
-        verificationStartedAt: new Date(),
-      })
+      const startTime = Date.now()
 
       // Set up interval to check balance
-      const checkId = setInterval(async () => {
-        try {
-          const currentBalance = await publicClient.readContract(tokenContract)
-          console.log(
-            `Current balance for ${order.recipientAddress} on chain ${order.destinationChainId}: ${currentBalance}`,
-          )
-
-          if (currentBalance > initialBalance) {
-            console.log(`Balance increased for order ${order.orderId}! Marking as Completed`)
-
-            clearInterval(checkId)
-            this.balanceChecks.delete(order.orderId)
-
-            // Update order status to "Completed" in MongoDB
-            await mongoDBClient.updateOrderStatus(order.orderId, 'Completed')
-
-            // Update other details
-            await mongoDBClient.storeOrder({
-              ...order,
-              status: 'Completed',
-              completedAt: new Date(),
-              updatedAt: new Date(),
-              finalDestinationBalance: currentBalance.toString(),
-              balanceIncrease: (currentBalance - initialBalance).toString(),
-            })
-
-            await this.redisPublisher.publish('universal-deposits:completed', order.orderId)
-          } else {
-            console.log(`No balance increase yet for order ${order.orderId}`)
-
-            // Check if we need to timeout the verification
-            const verificationStartTime = new Date(order.verificationStartedAt).getTime()
-            const currentTime = Date.now()
-            const elapsedTime = currentTime - verificationStartTime
-
-            const maxVerificationTime = process.env.MAX_VERIFICATION_TIME || 10 * 60 * 1000 // Default: 10 mins
-            if (elapsedTime > maxVerificationTime) {
-              console.log(`Verification timeout for order ${order.orderId}`)
-
-              // Stop checking
-              clearInterval(checkId)
-              this.balanceChecks.delete(order.orderId)
-
-              // Update order status to "VerificationTimeout" in MongoDB
-              await mongoDBClient.updateOrderStatus(order.orderId, 'VerificationTimeout')
-
-              // Update other details
-              await mongoDBClient.storeOrder({
-                ...order,
-                status: 'VerificationTimeout',
-                updatedAt: new Date(),
-                verificationEndedAt: new Date(),
-              })
-            }
-          }
-        } catch (error) {
-          console.error(`Error checking balance for order ${order.orderId}:`, error)
-        }
+      intervalId = setInterval(async () => {
+        await this._checkBalance(order.orderId, {
+          tokenContract,
+          initialBalance: order.initialDestinationBalance,
+          startTime,
+          mongoDBClient,
+          redisQueueManager,
+          monitorLockKey,
+        })
       }, this.checkBalanceInterval)
 
-      // Store the interval ID so we can clear it later if needed
-      this.balanceChecks.set(order.orderId, checkId)
+      // Store the monitoring data
+      this.balanceChecks.set(order.orderId, {
+        intervalId,
+        startTime,
+        monitorLockKey,
+        initialBalance: order.initialDestinationBalance,
+        publicClient: this.publicClient,
+        tokenContract,
+      })
 
-      console.log(`Started balance monitoring for order ${order.orderId}`)
+      this.logger.info(`Started balance monitoring for order ${order.orderId}`)
     } catch (error) {
-      console.error(`Error setting up balance monitoring for order ${order.orderId}:`, error)
+      this.logger.error(`Error setting up balance monitoring for order ${order.orderId}:`, error)
 
-      const { mongoDBClient } = await import('../utils/mongoClient.js')
+      // Cleanup on error
+      if (intervalId) {
+        clearInterval(intervalId)
+      }
+
+      if (monitorLockKey && redisQueueManager) {
+        try {
+          await redisQueueManager.releaseLock(monitorLockKey)
+        } catch (lockError) {
+          this.logger.error(`Error releasing monitor lock on error:`, lockError)
+        }
+      }
+
+      if (!mongoDBClient) {
+        mongoDBClient = databaseManager.getMongoClient()
+      }
+
       await mongoDBClient.updateOrderStatus(order.orderId, 'VerificationFailed')
       await mongoDBClient.storeOrder({
         ...order,
@@ -167,111 +219,416 @@ class CompletionVerifier {
         lastError: error.message || 'Unknown error during balance monitoring setup',
         updatedAt: new Date(),
       })
+
+      throw error
+    }
+  }
+
+  async _checkBalance(orderId, context) {
+    const {
+      tokenContract,
+      initialBalance,
+      startTime,
+      mongoDBClient,
+      redisQueueManager,
+      monitorLockKey,
+    } = context
+
+    try {
+      // Read current balance with error handling
+      let currentBalance
+      try {
+        currentBalance = await this.publicClient.readContract(tokenContract)
+      } catch (contractError) {
+        this.logger.error(`Error reading current balance for order ${orderId}:`, contractError)
+        return // Skip this check, will try again next interval
+      }
+
+      this.logger.debug(
+        `Current balance for order ${orderId}: ${currentBalance} (initial: ${initialBalance})`,
+      )
+
+      if (currentBalance > initialBalance) {
+        this.logger.info(`Balance increased for order ${orderId}! Marking as Completed`)
+
+        await this._completeOrder(orderId, {
+          currentBalance,
+          initialBalance,
+          mongoDBClient,
+          redisQueueManager,
+          monitorLockKey,
+        })
+      } else {
+        // Check for timeout
+        const elapsedTime = Date.now() - startTime
+        if (elapsedTime > this.maxVerificationTime) {
+          this.logger.warn(`Verification timeout for order ${orderId} (${elapsedTime}ms elapsed)`)
+
+          await this._timeoutOrder(orderId, {
+            mongoDBClient,
+            redisQueueManager,
+            monitorLockKey,
+          })
+        } else {
+          this.logger.debug(`No balance increase yet for order ${orderId} (${elapsedTime}ms elapsed)`)
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Error in balance check for order ${orderId}:`, error)
+    }
+  }
+
+  async _completeOrder(orderId, context) {
+    const { currentBalance, initialBalance, mongoDBClient, redisQueueManager, monitorLockKey } =
+      context
+
+    try {
+      // Stop monitoring
+      const monitoringData = this.balanceChecks.get(orderId)
+      if (monitoringData) {
+        clearInterval(monitoringData.intervalId)
+        this.balanceChecks.delete(orderId)
+      }
+
+      // Update order status to "Completed"
+      await mongoDBClient.updateOrderStatus(orderId, 'Completed')
+
+      // Get the current order to preserve all data
+      const currentOrder = await mongoDBClient.getOrder(orderId)
+
+      // Update with completion details
+      await mongoDBClient.storeOrder({
+        ...currentOrder,
+        status: 'Completed',
+        completedAt: new Date(),
+        updatedAt: new Date(),
+        finalDestinationBalance: currentBalance.toString(),
+        balanceIncrease: (currentBalance - BigInt(initialBalance)).toString(),
+      })
+
+      // Release the monitoring lock
+      await redisQueueManager.releaseLock(monitorLockKey)
+
+      await redisQueueManager.removeHashField(REDIS_ADDRESS_HASH_KEY, currentOrder.recipientAddress)
+
+      this.logger.info(`Successfully completed order ${orderId}`)
+    } catch (error) {
+      this.logger.error(`Error completing order ${orderId}:`, error)
+    }
+  }
+
+  async _timeoutOrder(orderId, context) {
+    const { mongoDBClient, redisQueueManager, monitorLockKey } = context
+
+    try {
+      // Stop monitoring
+      const monitoringData = this.balanceChecks.get(orderId)
+      if (monitoringData) {
+        clearInterval(monitoringData.intervalId)
+        this.balanceChecks.delete(orderId)
+      }
+
+      // Update order status
+      await mongoDBClient.updateOrderStatus(orderId, 'VerificationTimeout')
+
+      // Get the current order to preserve all data
+      const currentOrder = await mongoDBClient.getOrder(orderId)
+
+      await mongoDBClient.storeOrder({
+        ...currentOrder,
+        status: 'VerificationTimeout',
+        updatedAt: new Date(),
+        verificationEndedAt: new Date(),
+      })
+
+      // Release the monitoring lock
+      await redisQueueManager.releaseLock(monitorLockKey)
+
+      this.logger.warn(`Verification timeout for order ${orderId}`)
+    } catch (error) {
+      this.logger.error(`Error timing out order ${orderId}:`, error)
     }
   }
 
   async processQueue() {
-    try {
-      const { redisQueueManager } = await import('../utils/redisQueue.js')
-      const { mongoDBClient } = await import('../utils/mongoClient.js')
+    await this.initializeDatabases()
+    const redisQueueManager = databaseManager.getRedisQueueManager()
+    const mongoDBClient = databaseManager.getMongoClient()
 
+    if (process.env.MODE === 'dev') {
+      await this._processDevMode(redisQueueManager, mongoDBClient)
+    } else {
+      await this._processProductionMode(redisQueueManager, mongoDBClient)
+    }
+  }
+
+  async _processDevMode(redisQueueManager, mongoDBClient) {
+    try {
+      // Wait for a few seconds in dev mode
+      await new Promise(resolve => setTimeout(resolve, 10000))
+
+      const order = await redisQueueManager.getNextFromVerifyQueue()
+      if (!order) {
+        this.logger.warn('[dev] No order found in verify queue')
+        return
+      }
+
+      // Acquire a lock with proper timeout
+      const lockAcquired = await redisQueueManager.acquireLock(
+        order.orderId,
+        DEFAULT_PROCESSING_LOCK_DURATION,
+      )
+
+      if (!lockAcquired) {
+        this.logger.info(
+          `[dev] Order ${order.orderId} is being processed by another verify worker, skipping`,
+        )
+        await redisQueueManager.completeVerifyProcessing(order.orderId)
+        return
+      }
+
+      try {
+        const latestOrder = await mongoDBClient.getOrder(order.orderId)
+
+        // Simulate processing time
+        await new Promise(resolve => setTimeout(resolve, 10000))
+
+        this.logger.info('[dev] Order is set to completed')
+
+        const orderToUpdate = latestOrder || order
+        await mongoDBClient.updateOrderStatus(orderToUpdate.orderId, 'Completed')
+
+        await mongoDBClient.storeOrder({
+          ...orderToUpdate,
+          status: 'Completed',
+          completedAt: new Date(),
+          updatedAt: new Date(),
+          finalDestinationBalance: '10000000000',
+          balanceIncrease: '500000',
+        })
+
+        await redisQueueManager.completeVerifyProcessing(order.orderId)
+      } finally {
+        await redisQueueManager.releaseLock(order.orderId)
+      }
+    } catch (error) {
+      this.logger.error(`[dev] Error processing verify order:`, error)
+    }
+  }
+
+  async _processProductionMode(redisQueueManager, mongoDBClient) {
+    try {
       const queueLength = await redisQueueManager.getVerifyQueueLength()
 
       if (queueLength > 0) {
-        console.log(`Processing verify queue. Items in queue: ${queueLength}`)
+        this.logger.info(`Processing verify queue. Items in queue: ${queueLength}`)
 
         const order = await redisQueueManager.getNextFromVerifyQueue()
 
         if (order) {
-          const latestOrder = await mongoDBClient.getOrder(order.orderId)
-
-          if (latestOrder) {
-            await this.verify(latestOrder)
-          } else {
-            // If for some reason the order is not in MongoDB, use the order from the queue
-            await this.verify(order)
-          }
+          await this._processOrder(order, redisQueueManager, mongoDBClient)
         }
       } else {
         // Check for any orders in "Settled" status that need verification
-        const settledOrders = await mongoDBClient.getOrdersByStatus('Settled')
-        if (settledOrders && settledOrders.length > 0) {
-          console.log(`Found ${settledOrders.length} settled orders that need verification`)
-
-          // Process the first one
-          await this.verify(settledOrders[0])
-
-          // Queue the rest if there are more
-          for (let i = 1; i < settledOrders.length; i++) {
-            await redisQueueManager.addToVerifyQueue(settledOrders[i])
-          }
-        }
+        // TODO: remove, only process from the redis queue
+        //  await this._processSettledOrders(redisQueueManager, mongoDBClient)
       }
     } catch (error) {
-      console.error('Error processing verify queue:', error)
+      this.logger.error('Error processing verify queue:', error)
+    }
+  }
+
+  async _processOrder(order, redisQueueManager, mongoDBClient) {
+    // Acquire lock with proper timeout
+    const lockAcquired = await redisQueueManager.acquireLock(
+      order.orderId,
+      DEFAULT_PROCESSING_LOCK_DURATION,
+    )
+
+    if (!lockAcquired) {
+      this.logger.info(`Order ${order.orderId} is being processed by another verify worker, skipping`)
+      await redisQueueManager.completeVerifyProcessing(order.orderId)
+      return
+    }
+
+    try {
+      const latestOrder = await mongoDBClient.getOrder(order.orderId)
+
+      if (latestOrder) {
+        // Only process if status allows it
+        if (this._shouldProcessOrder(latestOrder)) {
+          await this.verify(latestOrder)
+        } else {
+          this.logger.info(`Skipping order ${order.orderId} - status is ${latestOrder.status}`)
+        }
+      }
+      // remove from the queue
+      await redisQueueManager.completeVerifyProcessing(order.orderId)
+    } catch (error) {
+      this.logger.error(`Error processing verify order ${order.orderId}:`, error)
+    } finally {
+      await redisQueueManager.releaseLock(order.orderId)
+    }
+  }
+
+  _shouldProcessOrder(order) {
+    return (
+      order.status === 'Settled' ||
+      (order.status === 'VerificationFailed' && (order.retryCount || 0) < MAX_RETRY_COUNT)
+    )
+  }
+
+  async _processSettledOrders(redisQueueManager, mongoDBClient) {
+    const settledOrders = await mongoDBClient.getOrdersByStatus('Settled')
+    if (settledOrders && settledOrders.length > 0) {
+      this.logger.info(`Found ${settledOrders.length} settled orders that need verification`)
+
+      // Process the first one immediately
+      await this.verify(settledOrders[0])
+
+      // Queue the rest
+      for (let i = 1; i < settledOrders.length; i++) {
+        await redisQueueManager.addToVerifyQueue(settledOrders[i])
+      }
     }
   }
 
   async run() {
     try {
-      await this.redisSubscriber.connect()
-      await this.redisDatabaseClient.connect()
-      await this.redisPublisher.connect()
+      await this.initializeDatabases()
 
       if (this.isRunning) {
-        console.log('Completion verifier is already running')
+        this.logger.info('Completion verifier is already running')
         return
       }
 
       this.isRunning = true
-      console.log('Completion verifier started')
+      this.logger.info('Completion verifier started')
+
+      // Start recovery check for hanging items
+      this.recoveryInterval = setInterval(async () => {
+        try {
+          const redisQueueManager = databaseManager.getRedisQueueManager()
+          await redisQueueManager.recoverHangingItems()
+          this.checkBalanceCheckTimeouts()
+        } catch (error) {
+          this.logger.error('Error recovering hanging items in verification worker:', error)
+        }
+      }, 60000) // Check every minute
 
       // Listen for queue notifications
-      await this.redisSubscriber.subscribe('universal-deposits:verify', async message => {
-        console.log('Received message on channel:', message)
+      await databaseManager.subscribe('universal-deposits:verify', async message => {
+        this.logger.debug('Received message on channel:', message)
         if (message === 'verify_called') {
-          console.log('Verify queue notification received')
+          this.logger.info('Verify queue notification received')
           await this.processQueue()
         }
       })
 
-      // Also set up interval for processing queue periodically
-      // This ensures we process any items that might be missed by the pub/sub mechanism
-      this.intervalId = setInterval(() => this.processQueue(), this.processInterval)
+      // Set up interval for processing queue periodically
+      // TODO: remove this to only listen to the redis queue  in order to avoid duplicated order processing
+      // this.intervalId = setInterval(() => this.processQueue(), this.processInterval)
     } catch (error) {
-      console.error('Error starting completion verifier:', error)
+      this.logger.error('Error starting completion verifier:', error)
       this.isRunning = false
     }
   }
 
+  checkBalanceCheckTimeouts() {
+    const now = Date.now()
+
+    for (const [orderId, data] of this.balanceChecks.entries()) {
+      if (!data.startTime) continue
+
+      const elapsedTime = now - data.startTime
+      if (elapsedTime > this.maxVerificationTime) {
+        this.logger.warn(`Force timeout for order ${orderId} (${elapsedTime}ms elapsed)`)
+
+        // Stop the interval
+        clearInterval(data.intervalId)
+        this.balanceChecks.delete(orderId)
+
+        // Update order status asynchronously with proper error handling
+        this._handleForcedTimeout(orderId, data.monitorLockKey)
+      }
+    }
+  }
+
+  async _handleForcedTimeout(orderId, monitorLockKey) {
+    try {
+      const mongoDBClient = databaseManager.getMongoClient()
+      const redisQueueManager = databaseManager.getRedisQueueManager()
+
+      await mongoDBClient.updateOrderStatus(orderId, 'VerificationTimeout')
+
+      const currentOrder = await mongoDBClient.getOrder(orderId)
+      if (currentOrder) {
+        await mongoDBClient.storeOrder({
+          ...currentOrder,
+          status: 'VerificationTimeout',
+          updatedAt: new Date(),
+          verificationEndedAt: new Date(),
+        })
+      }
+
+      // Release the monitor lock
+      if (monitorLockKey) {
+        await redisQueueManager.releaseLock(monitorLockKey)
+      }
+
+      this.logger.info(`Updated order ${orderId} status to VerificationTimeout`)
+    } catch (error) {
+      this.logger.error(`Error updating timeout status for order ${orderId}:`, error)
+    }
+  }
+
   async stop() {
+    this.logger.info('Stopping completion verifier...')
+
+    // Clear intervals
     if (this.intervalId) {
       clearInterval(this.intervalId)
       this.intervalId = null
     }
 
-    // Clear all active balance checks
-    for (const [orderId, intervalId] of this.balanceChecks.entries()) {
-      clearInterval(intervalId)
-      console.log(`Stopped balance monitoring for order ${orderId}`)
+    if (this.recoveryInterval) {
+      clearInterval(this.recoveryInterval)
+      this.recoveryInterval = null
     }
+
+    // Clear all active balance checks and release locks
+    const cleanupPromises = []
+
+    for (const [orderId, data] of this.balanceChecks.entries()) {
+      clearInterval(data.intervalId)
+      this.logger.info(`Stopped balance monitoring for order ${orderId}`)
+
+      // Release monitoring locks
+      if (data.monitorLockKey) {
+        cleanupPromises.push(
+          (async () => {
+            try {
+              const redisQueueManager = databaseManager.getRedisQueueManager()
+              await redisQueueManager.releaseLock(data.monitorLockKey)
+            } catch (error) {
+              this.logger.error(`Error releasing monitor lock for order ${orderId}:`, error)
+            }
+          })(),
+        )
+      }
+    }
+
     this.balanceChecks.clear()
 
-    if (this.redisSubscriber.isOpen) {
-      await this.redisSubscriber.unsubscribe('universal-deposits:verify')
-      this.redisSubscriber.destroy()
-    }
+    // Wait for all cleanup operations to complete
+    await Promise.all(cleanupPromises)
 
-    if (this.redisPublisher.isOpen) {
-      this.redisPublisher.destroy()
-    }
-
-    if (this.redisDatabaseClient.isOpen) {
-      this.redisDatabaseClient.destroy()
-    }
+    // Cleanup database connections
+    await databaseManager.cleanup()
+    this.databaseInitialized = false
 
     this.isRunning = false
-    console.log('Completion verifier stopped')
+    this.logger.info('Completion verifier stopped')
   }
 }
 

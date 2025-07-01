@@ -15,7 +15,7 @@ const registerAddressLimiter = rateLimit({
 
 /**
  * @swagger
- * /api/register-address:
+ * /register-address:
  *   post:
  *     summary: Register user address
  *     description: Registers a user address for a given chain and token.
@@ -29,17 +29,16 @@ const registerAddressLimiter = rateLimit({
  *             type: object
  *             required:
  *               - address
- *               - chainId
  *             properties:
- *               address:
+ *               destinationAddress:
  *                 type: string
  *                 description: The user's wallet address
- *               chainId:
+ *               destinationChain:
  *                 type: string
- *                 description: The chain ID the address belongs to
- *               token:
+ *                 description: The chain ID the address belongs to, default to Gnosis Chain ID (1)
+ *               destinationToken:
  *                 type: string
- *                 description: (Optional) Token associated with the registration
+ *                 description: (Optional) Token associated with the registration, default to EURe on Gnosis Chain
  *     responses:
  *       200:
  *         description: Address successfully registered

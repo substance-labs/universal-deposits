@@ -1,5 +1,7 @@
 import { MongoClient } from 'mongodb'
+import { getServiceLogger } from './logger.js'
 
+const logger = getServiceLogger('database')
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://localhost:27017'
 const DB_NAME = 'universal-deposits'
 
@@ -23,10 +25,10 @@ class MongoDBClient {
         await this.collections.orders.createIndex({ orderId: 1 }, { unique: true })
         await this.collections.orders.createIndex({ status: 1 })
 
-        console.log('MongoDB connected successfully')
+        logger.info('MongoDB connected successfully')
       }
     } catch (error) {
-      console.error('MongoDB connection error:', error)
+      logger.error('MongoDB connection error:', error)
       throw error
     }
   }
@@ -36,7 +38,7 @@ class MongoDBClient {
       await this.client.close()
       this.db = null
       this.collections = {}
-      console.log('MongoDB disconnected')
+      logger.info('MongoDB disconnected')
     }
   }
 
@@ -56,7 +58,7 @@ class MongoDBClient {
       )
       return result
     } catch (error) {
-      console.error('Error storing order in MongoDB:', error)
+      logger.error('Error storing order in MongoDB:', error)
       throw error
     }
   }
@@ -68,7 +70,7 @@ class MongoDBClient {
 
       const existingOrder = await this.collections.orders.findOne({ orderId })
       if (!existingOrder) {
-        console.warn(`Order ${orderId} not found for status update to ${status}`)
+        logger.warn(`Order ${orderId} not found for status update to ${status}`)
         return { acknowledged: false, matchedCount: 0, modifiedCount: 0 }
       }
 
