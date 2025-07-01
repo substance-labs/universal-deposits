@@ -1,6 +1,6 @@
 import { chains, tokens } from '@universal-deposits/constants'
 
-export const API_BASE_URL = 'http://localhost:3002/api'
+export const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3000/api'
 
 export const SUPPORTED_CHAINS = chains.reduce((acc, chain) => {
   const key = chain.name.toLowerCase().replace(/\s+/g, '')
