@@ -1,5 +1,6 @@
 {
   "name": "@universal-deposits/api",
+  "private": true,
   "version": "0.1.0",
   "description": "Universal Deposits API Service",
   "main": "src/index.js",
